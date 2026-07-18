@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>BeerShelf</title>
+
+<!-- PWA / iOS home-screen support -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12100d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BeerShelf">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ SHELF VIEW ============ -->
+  <section id="view-shelf" class="view active">
+    <header class="hero" id="heroBg">
+      <button class="icon-btn hero-settings" data-nav="settings" aria-label="Settings">⚙</button>
+      <div class="hero-title">
+        <div class="hero-logo">🍺</div>
+        <h1>BeerShelf</h1>
+        <p>Your Personal Beer Collection</p>
+      </div>
+    </header>
+
+    <div class="shelf-toolbar">
+      <input id="shelfSearch" type="search" placeholder="Search your shelf...">
+    </div>
+
+    <div id="shelfGrid" class="shelf-grid"></div>
+    <div id="shelfEmpty" class="empty-state" hidden>
+      <p>Your shelf is empty.</p>
+      <p class="empty-sub">Tap "+ Add Beer" to add your first one.</p>
+    </div>
+
+    <button id="addBeerBtn" class="fab">＋ Add Beer</button>
+  </section>
+
+  <!-- ============ COLLECTION VIEW ============ -->
+  <section id="view-collection" class="view">
+    <header class="page-header"><h2>Collection</h2></header>
+    <div class="collection-toolbar">
+      <select id="sortSelect">
+        <option value="new">Newest first</option>
+        <option value="old">Oldest first</option>
+        <option value="rating">Highest rated</option>
+        <option value="name">Name A–Z</option>
+        <option value="brewery">Brewery A–Z</option>
+      </select>
+    </div>
+    <div id="collectionList" class="collection-list"></div>
+  </section>
+
+  <!-- ============ STATS VIEW ============ -->
+  <section id="view-stats" class="view">
+    <header class="page-header"><h2>Stats</h2></header>
+    <div id="statsContent" class="stats-content"></div>
+  </section>
+
+  <!-- ============ SETTINGS VIEW ============ -->
+  <section id="view-settings" class="view">
+    <header class="page-header"><h2>Settings</h2></header>
+    <div class="settings-list">
+
+      <div class="settings-card">
+        <h3>Shelf Background</h3>
+        <p class="settings-sub">Set a custom background photo for your shelf screen.</p>
+        <div class="settings-row">
+          <button id="bgUploadBtn" class="btn-secondary">Choose Photo</button>
+          <button id="bgResetBtn" class="btn-ghost">Reset Default</button>
+        </div>
+        <input id="bgFileInput" type="file" accept="image/*" hidden>
+      </div>
+
+      <div class="settings-card">
+        <h3>Backup</h3>
+        <p class="settings-sub">Export your collection to a file, or restore it on another device.</p>
+        <div class="settings-row">
+          <button id="exportBtn" class="btn-secondary">Export Data</button>
+          <button id="importBtn" class="btn-secondary">Import Data</button>
+        </div>
+        <input id="importFileInput" type="file" accept="application/json" hidden>
+      </div>
+
+      <div class="settings-card danger">
+        <h3>Danger Zone</h3>
+        <p class="settings-sub">Permanently delete every beer in your collection.</p>
+        <button id="clearAllBtn" class="btn-danger">Clear All Data</button>
+      </div>
+
+      <div class="settings-card">
+        <h3>About</h3>
+        <p class="settings-sub">BeerShelf v1.0 — a personal, offline-first beer collection app. All data lives only on this device.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BOTTOM NAV ============ -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-nav="shelf">
+      <span class="nav-icon">🗄</span><span>Shelf</span>
+    </button>
+    <button class="nav-btn" data-nav="collection">
+      <span class="nav-icon">🍾</span><span>Collection</span>
+    </button>
+    <button class="nav-btn" data-nav="stats">
+      <span class="nav-icon">📊</span><span>Stats</span>
+    </button>
+    <button class="nav-btn" data-nav="settings">
+      <span class="nav-icon">⚙</span><span>Settings</span>
+    </button>
+  </nav>
+
+  <!-- ============ ADD BEER FLOW (full-screen overlay) ============ -->
+  <section id="addFlow" class="overlay">
+    <header class="flow-header">
+      <button id="addBack" class="link-btn">Back</button>
+      <span id="addStepTitle">Add Beer</span>
+      <button id="addNext" class="link-btn accent">Next</button>
+    </header>
+
+    <!-- Step 1: capture -->
+    <div id="addStep1" class="flow-step active">
+      <div class="capture-box" id="captureBox">
+        <img id="capturePreview" hidden>
+        <div id="captureHint">
+          <div class="capture-icon">📷</div>
+          <p>Take or choose a photo of the can/bottle, upright and centered</p>
+        </div>
+      </div>
+      <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+      <button id="takePhotoBtn" class="btn-primary wide">Take Photo</button>
+      <button id="choosePhotoBtn" class="btn-ghost wide">Choose from Library</button>
+    </div>
+
+    <!-- Step 2: crop -->
+    <div id="addStep2" class="flow-step">
+      <p class="crop-hint">Drag the corners to crop tightly around the can</p>
+      <div id="cropStage" class="crop-stage">
+        <img id="cropImage" draggable="false">
+        <div id="cropBox" class="crop-box">
+          <div class="crop-handle" data-h="tl"></div>
+          <div class="crop-handle" data-h="tr"></div>
+          <div class="crop-handle" data-h="bl"></div>
+          <div class="crop-handle" data-h="br"></div>
+        </div>
+      </div>
+      <div class="crop-actions">
+        <button id="rotateBtn" class="btn-ghost">⟲ Rotate</button>
+      </div>
+    </div>
+
+    <!-- Step 3: details -->
+    <div id="addStep3" class="flow-step">
+      <div class="details-form">
+        <div class="detail-preview">
+          <img id="detailPreviewImg">
+        </div>
+        <button id="changePhotoBtn" class="btn-ghost" style="align-self:center;">Change Photo</button>
+        <label>Name
+          <input id="fName" type="text" placeholder="e.g. Guinness Draught">
+        </label>
+        <label>Brewery
+          <input id="fBrewery" type="text" placeholder="e.g. Guinness">
+        </label>
+        <label>Style
+          <input id="fStyle" type="text" placeholder="e.g. Irish Dry Stout">
+        </label>
+        <label>Rating
+          <div id="fRating" class="star-picker" data-value="0">
+            <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
+          </div>
+        </label>
+        <label>Location
+          <input id="fLocation" type="text" placeholder="e.g. Dublin, Ireland">
+        </label>
+        <label>Date
+          <input id="fDate" type="date">
+        </label>
+        <label>Notes
+          <textarea id="fNotes" rows="3" placeholder="Smooth and creamy. A classic!"></textarea>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BEER DETAIL MODAL ============ -->
+  <section id="detailModal" class="overlay">
+    <header class="flow-header">
+      <button id="detailClose" class="link-btn">Close</button>
+      <span>Beer Details</span>
+      <button id="detailEdit" class="link-btn accent">Edit</button>
+    </header>
+    <div class="details-form" id="detailView"></div>
+    <div class="detail-footer">
+      <button id="detailDelete" class="btn-danger wide">Delete Beer</button>
+    </div>
+  </section>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
