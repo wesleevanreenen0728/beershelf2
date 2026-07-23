@@ -35,7 +35,7 @@
       <input id="shelfSearch" type="search" placeholder="Search your shelf...">
     </div>
 
-    <div id="shelfGrid" class="shelf-grid"></div>
+    <div id="shelfGrid" class="shelf-shelves"></div>
     <div id="shelfEmpty" class="empty-state" hidden>
       <p>Your shelf is empty.</p>
       <p class="empty-sub">Tap "+ Add Beer" to add your first one.</p>
@@ -78,6 +78,15 @@
           <button id="bgResetBtn" class="btn-ghost">Reset Default</button>
         </div>
         <input id="bgFileInput" type="file" accept="image/*" hidden>
+      </div>
+
+      <div class="settings-card">
+        <h3>Share Your Collection</h3>
+        <p class="settings-sub">Create a snapshot file of your shelf that anyone can open in a browser — no account or internet needed on their end. It's read-only and won't update after you send it.</p>
+        <label style="display:block;margin-bottom:10px;">Your name (shown on the shared shelf)
+          <input id="fDisplayName" type="text" placeholder="e.g. Reg's BeerShelf" style="width:100%;margin-top:6px;background:var(--panel2);border:1px solid #3a3022;border-radius:10px;padding:10px 12px;color:var(--text);font-size:14px;">
+        </label>
+        <button id="shareBtn" class="btn-secondary wide">Create Shareable File</button>
       </div>
 
       <div class="settings-card">
@@ -155,6 +164,10 @@
       </div>
       <div class="crop-actions">
         <button id="rotateBtn" class="btn-ghost">⟲ Rotate</button>
+        <div class="zoom-row">
+          <span>🔍</span>
+          <input id="zoomSlider" type="range" min="100" max="250" value="100">
+        </div>
       </div>
     </div>
 
@@ -174,11 +187,39 @@
         <label>Style
           <input id="fStyle" type="text" placeholder="e.g. Irish Dry Stout">
         </label>
+        <div class="chip-row" id="styleChips">
+          <button type="button" class="chip" data-style="IPA">IPA</button>
+          <button type="button" class="chip" data-style="Stout">Stout</button>
+          <button type="button" class="chip" data-style="Lager">Lager</button>
+          <button type="button" class="chip" data-style="Pilsner">Pilsner</button>
+          <button type="button" class="chip" data-style="Wheat Beer">Wheat Beer</button>
+          <button type="button" class="chip" data-style="Pale Ale">Pale Ale</button>
+          <button type="button" class="chip" data-style="Sour">Sour</button>
+          <button type="button" class="chip" data-style="Porter">Porter</button>
+          <button type="button" class="chip" data-style="Fruit Beer">Fruit Beer</button>
+          <button type="button" class="chip" data-style="Cider">Cider</button>
+        </div>
         <label>Rating
           <div id="fRating" class="star-picker" data-value="0">
             <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
           </div>
         </label>
+        <div class="price-row">
+          <label style="flex:1;">Price
+            <input id="fPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+          </label>
+          <label style="width:110px;">Currency
+            <select id="fCurrency">
+              <option value="USD">$ USD</option>
+              <option value="EUR">€ EUR</option>
+              <option value="GBP">£ GBP</option>
+              <option value="ZAR">R ZAR</option>
+              <option value="AUD">$ AUD</option>
+              <option value="CAD">$ CAD</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+        </div>
         <label>Location
           <input id="fLocation" type="text" placeholder="e.g. Dublin, Ireland">
         </label>
@@ -188,6 +229,18 @@
         <label>Notes
           <textarea id="fNotes" rows="3" placeholder="Smooth and creamy. A classic!"></textarea>
         </label>
+
+        <div class="venue-photo-block">
+          <label>Venue / Friends Photo <span class="opt-tag">optional</span></label>
+          <div id="venuePreviewWrap" hidden>
+            <img id="venuePreviewImg">
+            <button type="button" id="venueRemoveBtn" class="btn-ghost small">Remove</button>
+          </div>
+          <div id="venueAddWrap">
+            <button type="button" id="venueAddBtn" class="btn-secondary wide">📍 Add a photo of where you had it</button>
+          </div>
+          <input id="venueFileInput" type="file" accept="image/*" hidden>
+        </div>
       </div>
     </div>
   </section>

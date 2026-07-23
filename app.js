@@ -74,6 +74,7 @@ let addStep = 1;
 let rawPhotoDataUrl = null;   // pristine captured photo
 let rotationDeg = 0;
 let croppedDataUrl = null;    // final cropped image for the beer being added/edited
+let venuePhotoDataUrl = null; // optional secondary photo (venue/friends)
 
 /* ---------------- boot ---------------- */
 window.addEventListener('DOMContentLoaded', async () => {
@@ -130,20 +131,37 @@ function renderShelf() {
   grid.innerHTML = '';
   empty.hidden = list.length > 0 || q !== '';
   if (list.length === 0 && q !== '') {
-    grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#b7ab9a;padding:30px 0;">No matches.</p>';
+    grid.innerHTML = '<p style="text-align:center;color:#b7ab9a;padding:30px 0;">No matches.</p>';
     return;
   }
-  list.forEach(b => {
-    const tile = document.createElement('div');
-    tile.className = 'can-tile';
-    tile.innerHTML = `
-      <img src="${b.image}" alt="${escapeHtml(b.name)}">
-      <div class="ct-name">${escapeHtml(b.name || 'Unnamed')}</div>
-      <div class="ct-stars">${starString(b.rating)}</div>
-    `;
-    tile.addEventListener('click', () => openDetail(b.id));
-    grid.appendChild(tile);
-  });
+
+  const PER_ROW = 4;
+  for (let i = 0; i < list.length; i += PER_ROW) {
+    const rowBeers = list.slice(i, i + PER_ROW);
+    const row = document.createElement('div');
+    row.className = 'shelf-row';
+
+    const items = document.createElement('div');
+    items.className = 'shelf-items';
+    rowBeers.forEach(b => {
+      const item = document.createElement('div');
+      item.className = 'shelf-can-item';
+      item.innerHTML = `
+        <img src="${b.image}" alt="${escapeHtml(b.name)}">
+        <div class="ct-name">${escapeHtml(b.name || 'Unnamed')}</div>
+        <div class="ct-stars">${starString(b.rating)}</div>
+      `;
+      item.addEventListener('click', () => openDetail(b.id));
+      items.appendChild(item);
+    });
+    row.appendChild(items);
+
+    const plank = document.createElement('div');
+    plank.className = 'shelf-plank';
+    row.appendChild(plank);
+
+    grid.appendChild(row);
+  }
 }
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -205,6 +223,16 @@ function renderStats() {
   const styleEntries = Object.entries(styleCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxCount = Math.max(...styleEntries.map(e => e[1]), 1);
 
+  const spendByCurrency = {};
+  beers.forEach(b => {
+    if (b.priceAmount && !isNaN(b.priceAmount)) {
+      const cur = b.priceCurrency || 'Other';
+      spendByCurrency[cur] = (spendByCurrency[cur] || 0) + Number(b.priceAmount);
+    }
+  });
+  const currencySymbols = { USD: '$', EUR: '€', GBP: '£', ZAR: 'R', AUD: '$', CAD: '$' };
+  const spendEntries = Object.entries(spendByCurrency);
+
   el.innerHTML = `
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-big">${total}</div><div class="stat-label">Total Beers</div></div>
@@ -212,6 +240,13 @@ function renderStats() {
       <div class="stat-card"><div class="stat-big">${breweries}</div><div class="stat-label">Breweries</div></div>
       <div class="stat-card"><div class="stat-big">${styleEntries.length}</div><div class="stat-label">Styles Tried</div></div>
     </div>
+    ${spendEntries.length ? `
+    <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:6px;">Total Spent</div>
+      ${spendEntries.map(([cur, amt]) => `
+        <div class="dv-row"><span class="dv-k">${cur}</span><span>${currencySymbols[cur] || ''}${amt.toFixed(2)}</span></div>
+      `).join('')}
+    </div>` : ''}
     <div class="stat-card">
       <div class="stat-label" style="margin-bottom:6px;">Top Styles</div>
       ${styleEntries.map(([s, c]) => `
@@ -235,6 +270,24 @@ function applyBackground() {
   }
 }
 function bindSettings() {
+  const displayNameInput = document.getElementById('fDisplayName');
+  displayNameInput.value = settings.displayName || '';
+  displayNameInput.addEventListener('change', async () => {
+    settings.displayName = displayNameInput.value.trim();
+    await idbPut('settings', { key: 'displayName', value: settings.displayName });
+  });
+
+  document.getElementById('shareBtn').addEventListener('click', () => {
+    if (beers.length === 0) { alert('Add at least one beer before sharing.'); return; }
+    const html = buildShareableHtml();
+    const blob = new Blob([html], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    const nameSlug = (settings.displayName || 'my').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'my';
+    a.download = `${nameSlug}-beershelf-share.html`;
+    a.click();
+  });
+
   const bgFileInput = document.getElementById('bgFileInput');
   document.getElementById('bgUploadBtn').addEventListener('click', () => bgFileInput.click());
   bgFileInput.addEventListener('change', async (e) => {
@@ -367,6 +420,40 @@ function bindAddFlow() {
     goToAddStepIdx(1);
   });
 
+  // style quick-pick chips
+  document.getElementById('styleChips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    document.getElementById('fStyle').value = chip.dataset.style;
+    document.querySelectorAll('#styleChips .chip').forEach(c => c.classList.toggle('active', c === chip));
+  });
+
+  // venue / friends photo
+  const venueFileInput = document.getElementById('venueFileInput');
+  document.getElementById('venueAddBtn').addEventListener('click', () => venueFileInput.click());
+  venueFileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const dataUrl = await resizeImageFile(file, 1000, 0.85);
+    venuePhotoDataUrl = dataUrl;
+    document.getElementById('venuePreviewImg').src = dataUrl;
+    document.getElementById('venuePreviewWrap').hidden = false;
+    document.getElementById('venueAddWrap').hidden = true;
+    venueFileInput.value = '';
+  });
+  document.getElementById('venueRemoveBtn').addEventListener('click', () => {
+    venuePhotoDataUrl = null;
+    document.getElementById('venuePreviewWrap').hidden = true;
+    document.getElementById('venueAddWrap').hidden = false;
+  });
+
+  // crop zoom
+  document.getElementById('zoomSlider').addEventListener('input', (e) => {
+    const pct = Number(e.target.value);
+    document.getElementById('cropImage').style.transform = `scale(${pct / 100})`;
+    requestAnimationFrame(recalcCropBoundsAfterZoom);
+  });
+
   // star picker
   const picker = document.getElementById('fRating');
   picker.querySelectorAll('span').forEach(star => {
@@ -389,8 +476,23 @@ function openAddFlow(existingBeer) {
   document.getElementById('fLocation').value = existingBeer?.location || '';
   document.getElementById('fDate').value = existingBeer?.date || new Date().toISOString().slice(0, 10);
   document.getElementById('fNotes').value = existingBeer?.notes || '';
+  document.getElementById('fPrice').value = existingBeer?.priceAmount || '';
+  document.getElementById('fCurrency').value = existingBeer?.priceCurrency || 'USD';
   document.getElementById('fRating').dataset.value = existingBeer?.rating || 0;
   updateStarPicker();
+  document.querySelectorAll('#styleChips .chip').forEach(c =>
+    c.classList.toggle('active', c.dataset.style === (existingBeer?.style || ''))
+  );
+
+  venuePhotoDataUrl = existingBeer?.venueImage || null;
+  if (venuePhotoDataUrl) {
+    document.getElementById('venuePreviewImg').src = venuePhotoDataUrl;
+    document.getElementById('venuePreviewWrap').hidden = false;
+    document.getElementById('venueAddWrap').hidden = true;
+  } else {
+    document.getElementById('venuePreviewWrap').hidden = true;
+    document.getElementById('venueAddWrap').hidden = false;
+  }
 
   const prev = document.getElementById('capturePreview');
   if (existingBeer) {
@@ -464,6 +566,8 @@ function renderRotatedImage() {
 
 function initCropStage() {
   const cropImg = document.getElementById('cropImage');
+  document.getElementById('zoomSlider').value = 100;
+  cropImg.style.transform = 'scale(1)';
   const doInit = () => {
     requestAnimationFrame(() => {
       const stage = document.getElementById('cropStage');
@@ -492,6 +596,26 @@ function initCropStage() {
     cropImg.src = rawPhotoDataUrl;
     if (cropImg.complete) doInit(); else cropImg.onload = doInit;
   }
+}
+function recalcCropBoundsAfterZoom() {
+  const cropImg = document.getElementById('cropImage');
+  const stage = document.getElementById('cropStage');
+  const stageRect = stage.getBoundingClientRect();
+  const imgRect = cropImg.getBoundingClientRect();
+  imgBounds = {
+    left: imgRect.left - stageRect.left,
+    top: imgRect.top - stageRect.top,
+    w: imgRect.width,
+    h: imgRect.height
+  };
+  const insetX = imgBounds.w * 0.12, insetY = imgBounds.h * 0.06;
+  cropState = {
+    x: imgBounds.left + insetX,
+    y: imgBounds.top + insetY,
+    w: imgBounds.w - insetX * 2,
+    h: imgBounds.h - insetY * 2
+  };
+  drawCropBox();
 }
 function drawCropBox() {
   const box = document.getElementById('cropBox');
@@ -569,20 +693,37 @@ function computeCroppedImage() {
   const canvas = document.createElement('canvas');
   canvas.width = outW; canvas.height = outH;
   const ctx = canvas.getContext('2d');
+
+  // Rounded-rect alpha mask so the tight crop reads as a soft can/bottle
+  // shape rather than a harsh rectangle, even though the underlying crop is a rectangle.
+  const radius = Math.min(outW, outH) * 0.12;
+  ctx.beginPath();
+  ctx.moveTo(radius, 0);
+  ctx.arcTo(outW, 0, outW, outH, radius);
+  ctx.arcTo(outW, outH, 0, outH, radius);
+  ctx.arcTo(0, outH, 0, 0, radius);
+  ctx.arcTo(0, 0, outW, 0, radius);
+  ctx.closePath();
+  ctx.clip();
+
   ctx.drawImage(cropImg, sx, sy, sw, sh, 0, 0, outW, outH);
-  return canvas.toDataURL('image/jpeg', 0.88);
+  return canvas.toDataURL('image/png');
 }
 
 /* ---- save beer ---- */
 async function saveBeer() {
   const rating = Number(document.getElementById('fRating').dataset.value || 0);
+  const priceVal = document.getElementById('fPrice').value;
   const beer = {
     id: editingId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
     image: croppedDataUrl || rawPhotoDataUrl,
+    venueImage: venuePhotoDataUrl || null,
     name: document.getElementById('fName').value.trim(),
     brewery: document.getElementById('fBrewery').value.trim(),
     style: document.getElementById('fStyle').value.trim(),
     rating,
+    priceAmount: priceVal ? Number(priceVal) : null,
+    priceCurrency: document.getElementById('fCurrency').value,
     location: document.getElementById('fLocation').value.trim(),
     date: document.getElementById('fDate').value,
     notes: document.getElementById('fNotes').value.trim(),
@@ -622,6 +763,10 @@ function openDetail(id) {
   currentDetailId = id;
   const b = beers.find(x => x.id === id);
   if (!b) return;
+  const currencySymbols = { USD: '$', EUR: '€', GBP: '£', ZAR: 'R', AUD: '$', CAD: '$' };
+  const priceStr = (b.priceAmount != null && b.priceAmount !== '')
+    ? `${currencySymbols[b.priceCurrency] || ''}${Number(b.priceAmount).toFixed(2)} ${!currencySymbols[b.priceCurrency] ? (b.priceCurrency || '') : ''}`.trim()
+    : '—';
   const view = document.getElementById('detailView');
   view.innerHTML = `
     <div class="detail-preview"><img src="${b.image}"></div>
@@ -629,13 +774,115 @@ function openDetail(id) {
     <div class="dv-row"><span class="dv-k">Brewery</span><span>${escapeHtml(b.brewery) || '—'}</span></div>
     <div class="dv-row"><span class="dv-k">Style</span><span>${escapeHtml(b.style) || '—'}</span></div>
     <div class="dv-row"><span class="dv-k">Rating</span><span style="color:#e8a33d;">${starString(b.rating)}</span></div>
+    <div class="dv-row"><span class="dv-k">Price</span><span>${priceStr}</span></div>
     <div class="dv-row"><span class="dv-k">Location</span><span>${escapeHtml(b.location) || '—'}</span></div>
     <div class="dv-row"><span class="dv-k">Date</span><span>${b.date || '—'}</span></div>
     ${b.notes ? `<div class="dv-notes">${escapeHtml(b.notes)}</div>` : ''}
+    ${b.venueImage ? `<div class="dv-k" style="margin-top:14px;font-size:13px;">Where you had it</div><img src="${b.venueImage}" style="width:100%;border-radius:12px;margin-top:8px;">` : ''}
   `;
   document.getElementById('detailModal').classList.add('active');
 }
 function closeDetail() {
   document.getElementById('detailModal').classList.remove('active');
   currentDetailId = null;
+}
+
+/* ============================================================
+   SHARE — standalone, self-contained, read-only HTML snapshot
+   ============================================================ */
+function buildShareableHtml() {
+  const title = settings.displayName ? escapeHtml(settings.displayName) : 'My BeerShelf';
+  const data = beers.map(b => ({
+    image: b.image, venueImage: b.venueImage || null,
+    name: b.name, brewery: b.brewery, style: b.style, rating: b.rating,
+    priceAmount: b.priceAmount, priceCurrency: b.priceCurrency,
+    location: b.location, date: b.date, notes: b.notes,
+    createdAt: b.createdAt
+  })).sort((a, b) => b.createdAt - a.createdAt);
+
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+<style>
+:root{--bg:#0f0d0a;--panel:#1a1611;--gold:#e8a33d;--gold-light:#ffd68c;--text:#f2ece3;--text-dim:#b7ab9a;}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+.wrap{max-width:520px;margin:0 auto;padding-bottom:40px;}
+.hero{padding:36px 20px 26px;text-align:center;background:radial-gradient(circle at 50% 20%,#3a2c1c,#14100b 70%);}
+.hero h1{margin:0;color:var(--gold);font-family:Georgia,serif;font-size:30px;letter-spacing:1px;}
+.hero p{color:#e9e2d6;font-size:13px;margin:6px 0 0;opacity:.85;}
+.badge{display:inline-block;margin-top:10px;font-size:11px;background:rgba(232,163,61,0.15);color:var(--gold-light);padding:4px 10px;border-radius:999px;border:1px solid rgba(232,163,61,0.3);}
+.shelf-row{margin:0 10px 24px;}
+.shelf-items{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:10px 8px 16px;}
+.can{width:74px;text-align:center;cursor:pointer;}
+.can img{width:100%;height:92px;object-fit:contain;filter:drop-shadow(0 8px 5px rgba(0,0,0,.55));}
+.can .nm{font-size:11px;font-weight:600;margin-top:6px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.can .st{font-size:9px;color:var(--gold);margin-top:2px;}
+.plank{height:30px;border-radius:3px;background:linear-gradient(180deg,#8a5a2c 0%,#6b431f 55%,#3a2412 60%,#241408 100%);box-shadow:0 6px 10px rgba(0,0,0,.45);}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:flex-end;justify-content:center;z-index:10;}
+.modal.active{display:flex;}
+.sheet{background:var(--panel);width:100%;max-width:520px;max-height:85vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:20px;}
+.sheet img.main{width:130px;display:block;margin:0 auto 14px;object-fit:contain;max-height:170px;}
+.row{display:flex;justify-content:space-between;font-size:14px;padding:9px 0;border-bottom:1px solid #241d15;}
+.row span:first-child{color:var(--text-dim);}
+.notes{font-size:14px;line-height:1.5;padding-top:8px;}
+.venueimg{width:100%;border-radius:12px;margin-top:10px;}
+.closeBtn{display:block;margin:16px auto 0;background:none;border:1px solid #3a3022;color:var(--text-dim);padding:10px 20px;border-radius:10px;}
+.footer-note{text-align:center;color:var(--text-dim);font-size:11px;padding:20px;}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>${title}</h1>
+    <p>${data.length} beer${data.length === 1 ? '' : 's'} in this collection</p>
+    <span class="badge">Shared snapshot · view only</span>
+  </div>
+  <div id="shelves"></div>
+  <p class="footer-note">This is a read-only snapshot shared from BeerShelf. It won't update automatically — ask for a fresh copy anytime.</p>
+</div>
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+<script>
+const DATA = ${JSON.stringify(data)};
+function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function stars(n){n=Math.round(n||0);return '★'.repeat(n)+'☆'.repeat(5-n);}
+const CUR = {USD:'$',EUR:'€',GBP:'£',ZAR:'R',AUD:'$',CAD:'$'};
+const shelves = document.getElementById('shelves');
+const PER_ROW = 4;
+for (let i=0;i<DATA.length;i+=PER_ROW){
+  const rowBeers = DATA.slice(i,i+PER_ROW);
+  const row = document.createElement('div'); row.className='shelf-row';
+  const items = document.createElement('div'); items.className='shelf-items';
+  rowBeers.forEach((b) => {
+    const idx = DATA.indexOf(b);
+    const el = document.createElement('div'); el.className='can';
+    el.innerHTML = '<img src="'+b.image+'"><div class="nm">'+esc(b.name||'Unnamed')+'</div><div class="st">'+stars(b.rating)+'</div>';
+    el.addEventListener('click', () => openDetail(idx));
+    items.appendChild(el);
+  });
+  row.appendChild(items);
+  const plank = document.createElement('div'); plank.className='plank';
+  row.appendChild(plank);
+  shelves.appendChild(row);
+}
+function openDetail(idx){
+  const b = DATA[idx];
+  const priceStr = (b.priceAmount!=null && b.priceAmount!=='') ? ((CUR[b.priceCurrency]||'')+Number(b.priceAmount).toFixed(2)+' '+(!CUR[b.priceCurrency]?(b.priceCurrency||''):'')) : '—';
+  document.getElementById('sheet').innerHTML =
+    '<img class="main" src="'+b.image+'">'+
+    '<div class="row"><span>Name</span><span>'+esc(b.name)+'</span></div>'+
+    '<div class="row"><span>Brewery</span><span>'+(esc(b.brewery)||'—')+'</span></div>'+
+    '<div class="row"><span>Style</span><span>'+(esc(b.style)||'—')+'</span></div>'+
+    '<div class="row"><span>Rating</span><span style="color:#e8a33d;">'+stars(b.rating)+'</span></div>'+
+    '<div class="row"><span>Price</span><span>'+priceStr+'</span></div>'+
+    '<div class="row"><span>Location</span><span>'+(esc(b.location)||'—')+'</span></div>'+
+    '<div class="row"><span>Date</span><span>'+(b.date||'—')+'</span></div>'+
+    (b.notes ? '<div class="notes">'+esc(b.notes)+'</div>' : '')+
+    (b.venueImage ? '<img class="venueimg" src="'+b.venueImage+'">' : '')+
+    '<button class="closeBtn" onclick="document.getElementById(\\'modal\\').classList.remove(\\'active\\')">Close</button>';
+  document.getElementById('modal').classList.add('active');
+}
+document.getElementById('modal').addEventListener('click', (e)=>{ if(e.target.id==='modal') e.target.classList.remove('active'); });
+</script>
+</body></html>`;
 }
