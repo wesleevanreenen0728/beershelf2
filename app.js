@@ -147,6 +147,14 @@ function starString(n) {
   n = Math.round(n || 0);
   return '★'.repeat(n) + '☆'.repeat(5 - n);
 }
+const STYLE_PALETTE = ['#D9B23C', '#8B5E3C', '#C97B93', '#6B4226', '#8FAE87', '#C9784A', '#7C8FBF', '#B58BC9'];
+function styleColor(style) {
+  const s = (style || '').trim().toLowerCase();
+  if (!s) return 'var(--gold)';
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) hash = s.charCodeAt(i) + ((hash << 5) - hash);
+  return STYLE_PALETTE[Math.abs(hash) % STYLE_PALETTE.length];
+}
 function renderShelf() {
   const grid = document.getElementById('shelfGrid');
   const empty = document.getElementById('shelfEmpty');
@@ -167,10 +175,13 @@ function renderShelf() {
   list.forEach(b => {
     const tile = document.createElement('div');
     tile.className = 'can-tile';
+    tile.style.setProperty('--style-color', styleColor(b.style));
+    const medallion = b.rating > 0 ? `<div class="medallion">${Math.round(b.rating)}</div>` : '';
     tile.innerHTML = `
+      ${medallion}
       <img src="${b.image || PLACEHOLDER_IMG}" alt="${escapeHtml(b.name)}">
       <div class="ct-name">${escapeHtml(b.name || 'Unnamed')}</div>
-      <div class="ct-stars">${starString(b.rating)}</div>
+      <div class="ct-style">${escapeHtml(b.style) || '&nbsp;'}</div>
     `;
     tile.addEventListener('click', () => openDetail(b.id));
     grid.appendChild(tile);
@@ -880,13 +891,13 @@ function openDetail(id) {
   const view = document.getElementById('detailView');
   view.innerHTML = `
     <div class="detail-preview"><img src="${b.image || PLACEHOLDER_IMG}"></div>
+    <div class="detail-name-big">${escapeHtml(b.name)}</div>
+    ${b.brewery ? `<div class="detail-brewery-sub">${escapeHtml(b.brewery)}</div>` : ''}
+    ${!b.wishlist && b.rating > 0 ? `<div class="medallion-big">${Math.round(b.rating)}/5</div>` : ''}
     ${b.wishlist ? `<div class="wishlist-badge">📋 On your Wishlist — haven't tried it yet</div>` : ''}
-    <div class="dv-row"><span class="dv-k">Name</span><span>${escapeHtml(b.name)}</span></div>
-    <div class="dv-row"><span class="dv-k">Brewery</span><span>${escapeHtml(b.brewery) || '—'}</span></div>
     <div class="dv-row"><span class="dv-k">Style</span><span>${escapeHtml(b.style) || '—'}</span></div>
     <div class="dv-row"><span class="dv-k">ABV</span><span>${b.abv ? Number(b.abv).toFixed(1) + '%' : '—'}</span></div>
     <div class="dv-row"><span class="dv-k">Serving</span><span>${escapeHtml(b.serving) || '—'}</span></div>
-    ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Rating</span><span style="color:#e8a33d;">${starString(b.rating)}</span></div>` : ''}
     ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Price</span><span>${priceStr}</span></div>` : ''}
     <div class="dv-row"><span class="dv-k">Location</span><span>${escapeHtml(b.location) || '—'}</span></div>
     ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Date</span><span>${b.date || '—'}</span></div>` : ''}
