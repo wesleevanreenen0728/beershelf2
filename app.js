@@ -101,8 +101,6 @@ function resizeDataUrl(dataUrl, maxDim, quality) {
     img.src = dataUrl;
   });
 }
-let shelfStyleFilter = null;  // active style chip filter, or null
-let shelfRatingFilter = false; // "4★+" filter toggle
 let collectionSegment = 'owned'; // 'owned' | 'wishlist'
 
 /* ---------------- boot ---------------- */
@@ -112,7 +110,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   settingsRows.forEach(r => settings[r.key] = r.value);
 
   applyBackground();
-  renderShelfChips();
   renderShelf();
   renderCollection();
   renderStats();
@@ -150,35 +147,6 @@ function starString(n) {
   n = Math.round(n || 0);
   return '★'.repeat(n) + '☆'.repeat(5 - n);
 }
-function renderShelfChips() {
-  const wrap = document.getElementById('shelfFilterChips');
-  const owned = beers.filter(b => !b.wishlist);
-  const styles = [...new Set(owned.map(b => (b.style || '').trim()).filter(Boolean))].sort();
-  let html = '';
-  styles.forEach(s => {
-    html += `<button type="button" class="chip${shelfStyleFilter === s ? ' active' : ''}" data-style-filter="${escapeHtml(s)}">${escapeHtml(s)}</button>`;
-  });
-  html += `<button type="button" class="chip${shelfRatingFilter ? ' active' : ''}" id="chipRating4">4★+</button>`;
-  wrap.innerHTML = html;
-  wrap.hidden = owned.length === 0;
-
-  wrap.querySelectorAll('[data-style-filter]').forEach(chip => {
-    chip.addEventListener('click', () => {
-      shelfStyleFilter = (shelfStyleFilter === chip.dataset.styleFilter) ? null : chip.dataset.styleFilter;
-      renderShelfChips();
-      renderShelf();
-    });
-  });
-  const ratingChip = document.getElementById('chipRating4');
-  if (ratingChip) {
-    ratingChip.addEventListener('click', () => {
-      shelfRatingFilter = !shelfRatingFilter;
-      renderShelfChips();
-      renderShelf();
-    });
-  }
-}
-
 function renderShelf() {
   const grid = document.getElementById('shelfGrid');
   const empty = document.getElementById('shelfEmpty');
@@ -186,12 +154,10 @@ function renderShelf() {
   const list = beers
     .filter(b => !b.wishlist)
     .filter(b => !q || (b.name + b.brewery + b.style).toLowerCase().includes(q))
-    .filter(b => !shelfStyleFilter || (b.style || '').trim() === shelfStyleFilter)
-    .filter(b => !shelfRatingFilter || Number(b.rating || 0) >= 4)
     .sort((a, b) => b.createdAt - a.createdAt);
 
   grid.innerHTML = '';
-  const noResultsFromFilter = list.length === 0 && (q !== '' || shelfStyleFilter || shelfRatingFilter);
+  const noResultsFromFilter = list.length === 0 && q !== '';
   empty.hidden = list.length > 0 || noResultsFromFilter;
   if (noResultsFromFilter) {
     grid.innerHTML = '<p style="text-align:center;color:#b7ab9a;padding:30px 0;">No matches.</p>';
@@ -435,7 +401,7 @@ function bindSettings() {
       }
       beers = await idbAll('beers');
       applyBackground();
-      renderShelf(); renderShelfChips(); renderCollection(); renderStats();
+      renderShelf(); renderCollection(); renderStats();
       alert('Import complete.');
     } catch (err) {
       alert('Could not import this file.');
@@ -447,7 +413,7 @@ function bindSettings() {
     if (!confirm('Delete ALL beers? This cannot be undone.')) return;
     await idbClear('beers');
     beers = [];
-    renderShelf(); renderShelfChips(); renderCollection(); renderStats();
+    renderShelf(); renderCollection(); renderStats();
   });
 }
 
@@ -867,7 +833,7 @@ async function saveBeer() {
   if (idx >= 0) beers[idx] = beer; else beers.push(beer);
 
   closeAddFlow();
-  renderShelf(); renderShelfChips(); renderCollection(); renderStats();
+  renderShelf(); renderCollection(); renderStats();
   if (beer.wishlist) {
     collectionSegment = 'wishlist';
     const segWrap = document.getElementById('collectionSegment');
@@ -900,7 +866,7 @@ function bindDetailModal() {
     await idbDelete('beers', currentDetailId);
     beers = beers.filter(b => b.id !== currentDetailId);
     closeDetail();
-    renderShelf(); renderShelfChips(); renderCollection(); renderStats();
+    renderShelf(); renderCollection(); renderStats();
   });
 }
 function openDetail(id) {
