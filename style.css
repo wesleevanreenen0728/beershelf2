@@ -74,40 +74,34 @@ html,body{
   background:var(--panel);color:var(--text);font-size:15px;
 }
 
-.shelf-shelves{padding:16px 10px 100px;}
-.shelf-row{margin-bottom:26px;}
-.shelf-items{
-  display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;
-  padding:10px 8px 16px;
+.shelf-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:12px;
+  padding:14px 16px 10px;
 }
-.shelf-can-item{
-  width:74px;display:flex;flex-direction:column;align-items:center;text-align:center;
+.can-tile{
+  background:rgba(26,22,17,0.75);
+  border-radius:14px;padding:10px 8px 8px;
+  display:flex;flex-direction:column;align-items:center;
+  border:1px solid rgba(51,42,30,0.6);
+  backdrop-filter:blur(2px);
 }
-.shelf-can-item img{
-  width:100%;height:92px;object-fit:contain;object-position:center bottom;
-  filter:drop-shadow(0 8px 5px rgba(0,0,0,0.55));
+.can-tile img{
+  width:100%;height:84px;object-fit:contain;object-position:center bottom;margin-bottom:6px;
+  filter:drop-shadow(0 6px 4px rgba(0,0,0,0.5));
 }
-.shelf-can-item .ct-name{
-  font-size:11px;font-weight:600;line-height:1.2;margin-top:6px;color:#f2ece3;
+.can-tile .ct-name{
+  font-size:12px;font-weight:600;text-align:center;line-height:1.2;
   overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
 }
-.shelf-can-item .ct-stars{font-size:9px;color:var(--gold);margin-top:2px;}
-.shelf-plank{
-  height:34px;
-  background-image:url('shelf-plank.png');
-  background-repeat:repeat-x;
-  background-size:auto 100%;
-  border-radius:3px;
-  box-shadow:0 6px 10px rgba(0,0,0,0.45);
-}
+.can-tile .ct-stars{font-size:10px;color:var(--gold);margin-top:3px;}
 
 .empty-state{padding:60px 30px;text-align:center;color:var(--text-dim);}
 .empty-sub{font-size:13px;margin-top:6px;}
 
 .fab{
-  position:fixed;left:50%;transform:translateX(-50%);
-  bottom:calc(90px + var(--safe-bottom));
-  max-width:480px;width:calc(100% - 40px);
+  display:block;
+  width:calc(100% - 32px);
+  margin:20px auto 10px;
   background:linear-gradient(180deg,var(--gold-light),var(--gold));
   color:#231a0c;font-weight:700;font-size:16px;
   border:none;border-radius:14px;padding:15px;

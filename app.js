@@ -198,33 +198,17 @@ function renderShelf() {
     return;
   }
 
-  const PER_ROW = 4;
-  for (let i = 0; i < list.length; i += PER_ROW) {
-    const rowBeers = list.slice(i, i + PER_ROW);
-    const row = document.createElement('div');
-    row.className = 'shelf-row';
-
-    const items = document.createElement('div');
-    items.className = 'shelf-items';
-    rowBeers.forEach(b => {
-      const item = document.createElement('div');
-      item.className = 'shelf-can-item';
-      item.innerHTML = `
-        <img src="${b.image}" alt="${escapeHtml(b.name)}">
-        <div class="ct-name">${escapeHtml(b.name || 'Unnamed')}</div>
-        <div class="ct-stars">${starString(b.rating)}</div>
-      `;
-      item.addEventListener('click', () => openDetail(b.id));
-      items.appendChild(item);
-    });
-    row.appendChild(items);
-
-    const plank = document.createElement('div');
-    plank.className = 'shelf-plank';
-    row.appendChild(plank);
-
-    grid.appendChild(row);
-  }
+  list.forEach(b => {
+    const tile = document.createElement('div');
+    tile.className = 'can-tile';
+    tile.innerHTML = `
+      <img src="${b.image || PLACEHOLDER_IMG}" alt="${escapeHtml(b.name)}">
+      <div class="ct-name">${escapeHtml(b.name || 'Unnamed')}</div>
+      <div class="ct-stars">${starString(b.rating)}</div>
+    `;
+    tile.addEventListener('click', () => openDetail(b.id));
+    grid.appendChild(tile);
+  });
 }
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

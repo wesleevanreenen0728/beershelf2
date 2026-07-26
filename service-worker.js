@@ -1,4 +1,4 @@
-const CACHE_NAME = 'beershelf-cache-v3';
+const CACHE_NAME = 'beershelf-cache-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -8,7 +8,6 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png',
-  './shelf-plank.png'
 ];
 
 self.addEventListener('install', (e) => {
