@@ -1,4 +1,4 @@
-const CACHE_NAME = 'beershelf-cache-v2';
+const CACHE_NAME = 'beershelf-cache-v3';
 const ASSETS = [
   './',
   './index.html',

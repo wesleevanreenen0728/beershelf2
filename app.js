@@ -76,6 +76,35 @@ let rotationDeg = 0;
 let croppedDataUrl = null;    // final cropped image for the beer being added/edited
 let venuePhotoDataUrl = null; // optional secondary photo (venue/friends)
 
+const PLACEHOLDER_IMG = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160" viewBox="0 0 120 160">' +
+  '<rect width="120" height="160" fill="#241d15" rx="14"/>' +
+  '<text x="60" y="96" font-size="50" text-anchor="middle">🍺</text></svg>'
+);
+
+function resizeDataUrl(dataUrl, maxDim, quality) {
+  return new Promise((resolve) => {
+    if (!dataUrl) { resolve(null); return; }
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else { width = Math.round(width * maxDim / height); height = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+let shelfStyleFilter = null;  // active style chip filter, or null
+let shelfRatingFilter = false; // "4★+" filter toggle
+let collectionSegment = 'owned'; // 'owned' | 'wishlist'
+
 /* ---------------- boot ---------------- */
 window.addEventListener('DOMContentLoaded', async () => {
   beers = await idbAll('beers');
@@ -83,6 +112,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   settingsRows.forEach(r => settings[r.key] = r.value);
 
   applyBackground();
+  renderShelfChips();
   renderShelf();
   renderCollection();
   renderStats();
@@ -120,17 +150,50 @@ function starString(n) {
   n = Math.round(n || 0);
   return '★'.repeat(n) + '☆'.repeat(5 - n);
 }
+function renderShelfChips() {
+  const wrap = document.getElementById('shelfFilterChips');
+  const owned = beers.filter(b => !b.wishlist);
+  const styles = [...new Set(owned.map(b => (b.style || '').trim()).filter(Boolean))].sort();
+  let html = '';
+  styles.forEach(s => {
+    html += `<button type="button" class="chip${shelfStyleFilter === s ? ' active' : ''}" data-style-filter="${escapeHtml(s)}">${escapeHtml(s)}</button>`;
+  });
+  html += `<button type="button" class="chip${shelfRatingFilter ? ' active' : ''}" id="chipRating4">4★+</button>`;
+  wrap.innerHTML = html;
+  wrap.hidden = owned.length === 0;
+
+  wrap.querySelectorAll('[data-style-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      shelfStyleFilter = (shelfStyleFilter === chip.dataset.styleFilter) ? null : chip.dataset.styleFilter;
+      renderShelfChips();
+      renderShelf();
+    });
+  });
+  const ratingChip = document.getElementById('chipRating4');
+  if (ratingChip) {
+    ratingChip.addEventListener('click', () => {
+      shelfRatingFilter = !shelfRatingFilter;
+      renderShelfChips();
+      renderShelf();
+    });
+  }
+}
+
 function renderShelf() {
   const grid = document.getElementById('shelfGrid');
   const empty = document.getElementById('shelfEmpty');
   const q = (document.getElementById('shelfSearch').value || '').toLowerCase();
   const list = beers
+    .filter(b => !b.wishlist)
     .filter(b => !q || (b.name + b.brewery + b.style).toLowerCase().includes(q))
+    .filter(b => !shelfStyleFilter || (b.style || '').trim() === shelfStyleFilter)
+    .filter(b => !shelfRatingFilter || Number(b.rating || 0) >= 4)
     .sort((a, b) => b.createdAt - a.createdAt);
 
   grid.innerHTML = '';
-  empty.hidden = list.length > 0 || q !== '';
-  if (list.length === 0 && q !== '') {
+  const noResultsFromFilter = list.length === 0 && (q !== '' || shelfStyleFilter || shelfRatingFilter);
+  empty.hidden = list.length > 0 || noResultsFromFilter;
+  if (noResultsFromFilter) {
     grid.innerHTML = '<p style="text-align:center;color:#b7ab9a;padding:30px 0;">No matches.</p>';
     return;
   }
@@ -174,8 +237,19 @@ function renderCollection() {
     sortSelect.addEventListener('change', renderCollection);
     sortSelect.dataset.bound = '1';
   }
+  const segWrap = document.getElementById('collectionSegment');
+  if (!segWrap.dataset.bound) {
+    segWrap.querySelectorAll('.seg-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        collectionSegment = btn.dataset.seg;
+        segWrap.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+        renderCollection();
+      });
+    });
+    segWrap.dataset.bound = '1';
+  }
   const mode = sortSelect.value;
-  let list = [...beers];
+  let list = beers.filter(b => (collectionSegment === 'wishlist') ? b.wishlist : !b.wishlist);
   if (mode === 'new') list.sort((a, b) => b.createdAt - a.createdAt);
   else if (mode === 'old') list.sort((a, b) => a.createdAt - b.createdAt);
   else if (mode === 'rating') list.sort((a, b) => (b.rating || 0) - (a.rating || 0));
@@ -185,18 +259,18 @@ function renderCollection() {
   const el = document.getElementById('collectionList');
   el.innerHTML = '';
   if (list.length === 0) {
-    el.innerHTML = '<p style="text-align:center;color:#b7ab9a;padding:30px 0;">No beers yet.</p>';
+    el.innerHTML = `<p style="text-align:center;color:#b7ab9a;padding:30px 0;">${collectionSegment === 'wishlist' ? 'Your wishlist is empty.' : 'No beers yet.'}</p>`;
     return;
   }
   list.forEach(b => {
     const row = document.createElement('div');
     row.className = 'collection-row';
     row.innerHTML = `
-      <img src="${b.image}" alt="">
+      <img src="${b.image || PLACEHOLDER_IMG}" alt="">
       <div class="cr-info">
         <div class="cr-name">${escapeHtml(b.name || 'Unnamed')}</div>
         <div class="cr-brewery">${escapeHtml(b.brewery || '')}${b.style ? ' · ' + escapeHtml(b.style) : ''}</div>
-        <div class="cr-stars">${starString(b.rating)}</div>
+        ${b.wishlist ? `<div class="cr-stars" style="color:var(--text-dim);">Want to try</div>` : `<div class="cr-stars">${starString(b.rating)}</div>`}
       </div>
     `;
     row.addEventListener('click', () => openDetail(b.id));
@@ -207,16 +281,17 @@ function renderCollection() {
 /* ---------------- stats ---------------- */
 function renderStats() {
   const el = document.getElementById('statsContent');
-  if (beers.length === 0) {
+  const owned = beers.filter(b => !b.wishlist);
+  if (owned.length === 0) {
     el.innerHTML = '<p style="text-align:center;color:#b7ab9a;padding:30px 0;">Add some beers to see stats.</p>';
     return;
   }
-  const total = beers.length;
-  const avg = (beers.reduce((s, b) => s + (Number(b.rating) || 0), 0) / total).toFixed(1);
-  const breweries = new Set(beers.map(b => b.brewery).filter(Boolean)).size;
+  const total = owned.length;
+  const avg = (owned.reduce((s, b) => s + (Number(b.rating) || 0), 0) / total).toFixed(1);
+  const breweries = new Set(owned.map(b => b.brewery).filter(Boolean)).size;
 
   const styleCounts = {};
-  beers.forEach(b => {
+  owned.forEach(b => {
     const s = b.style && b.style.trim() ? b.style.trim() : 'Unspecified';
     styleCounts[s] = (styleCounts[s] || 0) + 1;
   });
@@ -224,7 +299,7 @@ function renderStats() {
   const maxCount = Math.max(...styleEntries.map(e => e[1]), 1);
 
   const spendByCurrency = {};
-  beers.forEach(b => {
+  owned.forEach(b => {
     if (b.priceAmount && !isNaN(b.priceAmount)) {
       const cur = b.priceCurrency || 'Other';
       spendByCurrency[cur] = (spendByCurrency[cur] || 0) + Number(b.priceAmount);
@@ -233,12 +308,20 @@ function renderStats() {
   const currencySymbols = { USD: '$', EUR: '€', GBP: '£', ZAR: 'R', AUD: '$', CAD: '$' };
   const spendEntries = Object.entries(spendByCurrency);
 
+  const abvValues = owned.map(b => Number(b.abv)).filter(v => !isNaN(v) && v > 0);
+  const avgAbv = abvValues.length ? (abvValues.reduce((s, v) => s + v, 0) / abvValues.length).toFixed(1) : null;
+  const strongest = owned.filter(b => !isNaN(Number(b.abv)) && b.abv).sort((a, b) => Number(b.abv) - Number(a.abv))[0];
+
+  const badges = computeBadges();
+
   el.innerHTML = `
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-big">${total}</div><div class="stat-label">Total Beers</div></div>
       <div class="stat-card"><div class="stat-big">${avg}</div><div class="stat-label">Average Rating</div></div>
       <div class="stat-card"><div class="stat-big">${breweries}</div><div class="stat-label">Breweries</div></div>
       <div class="stat-card"><div class="stat-big">${styleEntries.length}</div><div class="stat-label">Styles Tried</div></div>
+      ${avgAbv ? `<div class="stat-card"><div class="stat-big">${avgAbv}%</div><div class="stat-label">Average ABV</div></div>` : ''}
+      ${strongest ? `<div class="stat-card"><div class="stat-big">${Number(strongest.abv).toFixed(1)}%</div><div class="stat-label">Strongest: ${escapeHtml(strongest.name)}</div></div>` : ''}
     </div>
     ${spendEntries.length ? `
     <div class="stat-card">
@@ -257,16 +340,51 @@ function renderStats() {
         </div>
       `).join('')}
     </div>
+    <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:10px;">Badges</div>
+      <div class="badges-grid">
+        ${badges.map(bd => `
+          <div class="badge-card${bd.unlocked ? ' unlocked' : ''}">
+            <div class="badge-icon">${bd.icon}</div>
+            <div class="badge-name">${bd.name}</div>
+            <div class="badge-desc">${bd.desc}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
   `;
+}
+
+function computeBadges() {
+  const owned = beers.filter(b => !b.wishlist);
+  const total = owned.length;
+  const styleCount = new Set(owned.map(b => (b.style || '').trim()).filter(Boolean)).size;
+  const breweryCount = new Set(owned.map(b => (b.brewery || '').trim()).filter(Boolean)).size;
+  const locationCount = new Set(owned.map(b => (b.location || '').trim()).filter(Boolean)).size;
+  const avgRating = total ? owned.reduce((s, b) => s + (Number(b.rating) || 0), 0) / total : 0;
+  const hasHeavyHitter = owned.some(b => Number(b.abv) >= 8);
+
+  return [
+    { icon: '🍺', name: 'First Pour', desc: '1 beer added', unlocked: total >= 1 },
+    { icon: '📦', name: 'Six Pack', desc: '6 beers added', unlocked: total >= 6 },
+    { icon: '🧊', name: 'Case Closed', desc: '24 beers added', unlocked: total >= 24 },
+    { icon: '🏆', name: 'Century Club', desc: '100 beers added', unlocked: total >= 100 },
+    { icon: '🌍', name: 'World Traveler', desc: '5+ locations', unlocked: locationCount >= 5 },
+    { icon: '🏭', name: 'Brewery Hopper', desc: '5+ breweries', unlocked: breweryCount >= 5 },
+    { icon: '🎨', name: 'Style Explorer', desc: '5+ styles tried', unlocked: styleCount >= 5 },
+    { icon: '🧐', name: 'Connoisseur', desc: '4★+ avg, 10+ beers', unlocked: total >= 10 && avgRating >= 4 },
+    { icon: '💪', name: 'Heavy Hitter', desc: 'A beer 8%+ ABV', unlocked: hasHeavyHitter }
+  ];
 }
 
 /* ---------------- settings ---------------- */
 function applyBackground() {
-  const hero = document.getElementById('heroBg');
+  const view = document.getElementById('view-shelf');
+  const overlay = 'linear-gradient(180deg, rgba(10,8,6,0.55) 0px, rgba(9,7,5,0.82) 320px, rgba(8,6,4,0.93) 650px, rgba(6,5,4,0.97) 1100px)';
   if (settings.bgImage) {
-    hero.style.backgroundImage = `linear-gradient(180deg, rgba(10,8,6,0.55), rgba(10,8,6,0.75)), url('${settings.bgImage}')`;
+    view.style.backgroundImage = `${overlay}, url('${settings.bgImage}')`;
   } else {
-    hero.style.backgroundImage = '';
+    view.style.backgroundImage = '';
   }
 }
 function bindSettings() {
@@ -333,7 +451,7 @@ function bindSettings() {
       }
       beers = await idbAll('beers');
       applyBackground();
-      renderShelf(); renderCollection(); renderStats();
+      renderShelf(); renderShelfChips(); renderCollection(); renderStats();
       alert('Import complete.');
     } catch (err) {
       alert('Could not import this file.');
@@ -345,7 +463,7 @@ function bindSettings() {
     if (!confirm('Delete ALL beers? This cannot be undone.')) return;
     await idbClear('beers');
     beers = [];
-    renderShelf(); renderCollection(); renderStats();
+    renderShelf(); renderShelfChips(); renderCollection(); renderStats();
   });
 }
 
@@ -405,11 +523,16 @@ function bindAddFlow() {
   });
 
   document.getElementById('addBack').addEventListener('click', () => {
+    const isWishlist = document.getElementById('fWishlist').checked;
     if (addStep === 1) { closeAddFlow(); return; }
     if (addStep === 3 && editingId) { closeAddFlow(); openDetail(editingId); return; }
+    if (addStep === 3 && isWishlist) { goToAddStepIdx(1); return; }
     goToAddStepIdx(addStep - 1);
   });
   document.getElementById('addNext').addEventListener('click', onAddNext);
+
+  const wishlistCheckbox = document.getElementById('fWishlist');
+  wishlistCheckbox.addEventListener('change', () => togglePostTryFields(wishlistCheckbox.checked));
 
   document.getElementById('rotateBtn').addEventListener('click', () => {
     rotationDeg = (rotationDeg + 90) % 360;
@@ -464,7 +587,7 @@ function bindAddFlow() {
   });
 }
 
-function openAddFlow(existingBeer) {
+function openAddFlow(existingBeer, forceConvert) {
   editingId = existingBeer ? existingBeer.id : null;
   rawPhotoDataUrl = existingBeer ? existingBeer.image : null;
   croppedDataUrl = existingBeer ? existingBeer.image : null;
@@ -478,6 +601,11 @@ function openAddFlow(existingBeer) {
   document.getElementById('fNotes').value = existingBeer?.notes || '';
   document.getElementById('fPrice').value = existingBeer?.priceAmount || '';
   document.getElementById('fCurrency').value = existingBeer?.priceCurrency || 'USD';
+  document.getElementById('fAbv').value = existingBeer?.abv || '';
+  document.getElementById('fServing').value = existingBeer?.serving || '';
+  const isWishlist = forceConvert ? false : !!existingBeer?.wishlist;
+  document.getElementById('fWishlist').checked = isWishlist;
+  togglePostTryFields(isWishlist);
   document.getElementById('fRating').dataset.value = existingBeer?.rating || 0;
   updateStarPicker();
   document.querySelectorAll('#styleChips .chip').forEach(c =>
@@ -495,16 +623,17 @@ function openAddFlow(existingBeer) {
   }
 
   const prev = document.getElementById('capturePreview');
-  if (existingBeer) {
+  if (existingBeer && existingBeer.image && !forceConvert) {
     prev.src = existingBeer.image; prev.hidden = false;
     document.getElementById('captureHint').hidden = true;
   } else {
     prev.hidden = true;
     document.getElementById('captureHint').hidden = false;
+    if (forceConvert) { rawPhotoDataUrl = null; croppedDataUrl = null; }
   }
 
   document.getElementById('addFlow').classList.add('active');
-  goToAddStepIdx(existingBeer ? 3 : 1);
+  goToAddStepIdx((existingBeer && !forceConvert) ? 3 : 1);
 }
 function closeAddFlow() {
   document.getElementById('addFlow').classList.remove('active');
@@ -521,19 +650,32 @@ function goToAddStepIdx(n) {
 
   if (n === 2) initCropStage();
   if (n === 3) {
-    document.getElementById('detailPreviewImg').src = croppedDataUrl || rawPhotoDataUrl || '';
+    document.getElementById('detailPreviewImg').src = croppedDataUrl || rawPhotoDataUrl || PLACEHOLDER_IMG;
+    document.getElementById('changePhotoBtn').textContent = (croppedDataUrl || rawPhotoDataUrl) ? 'Change Photo' : 'Add a Photo';
   }
 }
-function onAddNext() {
+async function onAddNext() {
+  const isWishlist = document.getElementById('fWishlist').checked;
   if (addStep === 1) {
-    if (!rawPhotoDataUrl) { alert('Please take or choose a photo first.'); return; }
-    goToAddStepIdx(2);
+    if (!rawPhotoDataUrl && !isWishlist) { alert('Please take or choose a photo first.'); return; }
+    if (isWishlist) {
+      croppedDataUrl = rawPhotoDataUrl ? await resizeDataUrl(rawPhotoDataUrl, 500, 0.85) : null;
+      goToAddStepIdx(3);
+    } else {
+      goToAddStepIdx(2);
+    }
   } else if (addStep === 2) {
     croppedDataUrl = computeCroppedImage();
     goToAddStepIdx(3);
   } else if (addStep === 3) {
     saveBeer();
   }
+}
+function togglePostTryFields(isWishlist) {
+  ['postTryFields', 'postTryFields2', 'postTryFields3'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = isWishlist;
+  });
 }
 function updateStarPicker() {
   const picker = document.getElementById('fRating');
@@ -714,18 +856,23 @@ function computeCroppedImage() {
 async function saveBeer() {
   const rating = Number(document.getElementById('fRating').dataset.value || 0);
   const priceVal = document.getElementById('fPrice').value;
+  const abvVal = document.getElementById('fAbv').value;
+  const isWishlist = document.getElementById('fWishlist').checked;
   const beer = {
     id: editingId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
-    image: croppedDataUrl || rawPhotoDataUrl,
+    image: croppedDataUrl || rawPhotoDataUrl || null,
     venueImage: venuePhotoDataUrl || null,
     name: document.getElementById('fName').value.trim(),
     brewery: document.getElementById('fBrewery').value.trim(),
     style: document.getElementById('fStyle').value.trim(),
-    rating,
-    priceAmount: priceVal ? Number(priceVal) : null,
+    rating: isWishlist ? 0 : rating,
+    priceAmount: (!isWishlist && priceVal) ? Number(priceVal) : null,
     priceCurrency: document.getElementById('fCurrency').value,
+    abv: abvVal ? Number(abvVal) : null,
+    serving: document.getElementById('fServing').value.trim(),
+    wishlist: isWishlist,
     location: document.getElementById('fLocation').value.trim(),
-    date: document.getElementById('fDate').value,
+    date: isWishlist ? '' : document.getElementById('fDate').value,
     notes: document.getElementById('fNotes').value.trim(),
     createdAt: editingId ? (beers.find(b => b.id === editingId)?.createdAt || Date.now()) : Date.now()
   };
@@ -736,8 +883,16 @@ async function saveBeer() {
   if (idx >= 0) beers[idx] = beer; else beers.push(beer);
 
   closeAddFlow();
-  renderShelf(); renderCollection(); renderStats();
-  goToView('shelf');
+  renderShelf(); renderShelfChips(); renderCollection(); renderStats();
+  if (beer.wishlist) {
+    collectionSegment = 'wishlist';
+    const segWrap = document.getElementById('collectionSegment');
+    segWrap.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.seg === 'wishlist'));
+    renderCollection();
+    goToView('collection');
+  } else {
+    goToView('shelf');
+  }
 }
 
 /* ============================================================
@@ -751,12 +906,17 @@ function bindDetailModal() {
     closeDetail();
     openAddFlow(b);
   });
+  document.getElementById('detailMoveBtn').addEventListener('click', () => {
+    const b = beers.find(x => x.id === currentDetailId);
+    closeDetail();
+    openAddFlow(b, true); // forceConvert: requires a real photo + crop, clears wishlist flag
+  });
   document.getElementById('detailDelete').addEventListener('click', async () => {
     if (!confirm('Delete this beer?')) return;
     await idbDelete('beers', currentDetailId);
     beers = beers.filter(b => b.id !== currentDetailId);
     closeDetail();
-    renderShelf(); renderCollection(); renderStats();
+    renderShelf(); renderShelfChips(); renderCollection(); renderStats();
   });
 }
 function openDetail(id) {
@@ -769,17 +929,21 @@ function openDetail(id) {
     : '—';
   const view = document.getElementById('detailView');
   view.innerHTML = `
-    <div class="detail-preview"><img src="${b.image}"></div>
+    <div class="detail-preview"><img src="${b.image || PLACEHOLDER_IMG}"></div>
+    ${b.wishlist ? `<div class="wishlist-badge">📋 On your Wishlist — haven't tried it yet</div>` : ''}
     <div class="dv-row"><span class="dv-k">Name</span><span>${escapeHtml(b.name)}</span></div>
     <div class="dv-row"><span class="dv-k">Brewery</span><span>${escapeHtml(b.brewery) || '—'}</span></div>
     <div class="dv-row"><span class="dv-k">Style</span><span>${escapeHtml(b.style) || '—'}</span></div>
-    <div class="dv-row"><span class="dv-k">Rating</span><span style="color:#e8a33d;">${starString(b.rating)}</span></div>
-    <div class="dv-row"><span class="dv-k">Price</span><span>${priceStr}</span></div>
+    <div class="dv-row"><span class="dv-k">ABV</span><span>${b.abv ? Number(b.abv).toFixed(1) + '%' : '—'}</span></div>
+    <div class="dv-row"><span class="dv-k">Serving</span><span>${escapeHtml(b.serving) || '—'}</span></div>
+    ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Rating</span><span style="color:#e8a33d;">${starString(b.rating)}</span></div>` : ''}
+    ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Price</span><span>${priceStr}</span></div>` : ''}
     <div class="dv-row"><span class="dv-k">Location</span><span>${escapeHtml(b.location) || '—'}</span></div>
-    <div class="dv-row"><span class="dv-k">Date</span><span>${b.date || '—'}</span></div>
+    ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Date</span><span>${b.date || '—'}</span></div>` : ''}
     ${b.notes ? `<div class="dv-notes">${escapeHtml(b.notes)}</div>` : ''}
     ${b.venueImage ? `<div class="dv-k" style="margin-top:14px;font-size:13px;">Where you had it</div><img src="${b.venueImage}" style="width:100%;border-radius:12px;margin-top:8px;">` : ''}
   `;
+  document.getElementById('detailMoveBtn').hidden = !b.wishlist;
   document.getElementById('detailModal').classList.add('active');
 }
 function closeDetail() {

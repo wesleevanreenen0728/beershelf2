@@ -22,7 +22,7 @@
 
   <!-- ============ SHELF VIEW ============ -->
   <section id="view-shelf" class="view active">
-    <header class="hero" id="heroBg">
+    <header class="hero">
       <button class="icon-btn hero-settings" data-nav="settings" aria-label="Settings">⚙</button>
       <div class="hero-title">
         <div class="hero-logo">🍺</div>
@@ -34,6 +34,7 @@
     <div class="shelf-toolbar">
       <input id="shelfSearch" type="search" placeholder="Search your shelf...">
     </div>
+    <div class="chip-row" id="shelfFilterChips" style="padding:0 16px 4px;"></div>
 
     <div id="shelfGrid" class="shelf-shelves"></div>
     <div id="shelfEmpty" class="empty-state" hidden>
@@ -47,6 +48,10 @@
   <!-- ============ COLLECTION VIEW ============ -->
   <section id="view-collection" class="view">
     <header class="page-header"><h2>Collection</h2></header>
+    <div class="segmented" id="collectionSegment">
+      <button type="button" class="seg-btn active" data-seg="owned">My Collection</button>
+      <button type="button" class="seg-btn" data-seg="wishlist">Wishlist</button>
+    </div>
     <div class="collection-toolbar">
       <select id="sortSelect">
         <option value="new">Newest first</option>
@@ -138,6 +143,10 @@
 
     <!-- Step 1: capture -->
     <div id="addStep1" class="flow-step active">
+      <label class="wishlist-toggle">
+        <input type="checkbox" id="fWishlist">
+        <span>Add to Wishlist <span class="opt-tag">haven't tried it yet — photo optional</span></span>
+      </label>
       <div class="capture-box" id="captureBox">
         <img id="capturePreview" hidden>
         <div id="captureHint">
@@ -178,6 +187,7 @@
           <img id="detailPreviewImg">
         </div>
         <button id="changePhotoBtn" class="btn-ghost" style="align-self:center;">Change Photo</button>
+
         <label>Name
           <input id="fName" type="text" placeholder="e.g. Guinness Draught">
         </label>
@@ -199,38 +209,50 @@
           <button type="button" class="chip" data-style="Fruit Beer">Fruit Beer</button>
           <button type="button" class="chip" data-style="Cider">Cider</button>
         </div>
-        <label>Rating
-          <div id="fRating" class="star-picker" data-value="0">
-            <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
-          </div>
-        </label>
-        <div class="price-row">
-          <label style="flex:1;">Price
-            <input id="fPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+        <div id="postTryFields">
+          <label>Rating
+            <div id="fRating" class="star-picker" data-value="0">
+              <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
+            </div>
           </label>
-          <label style="width:110px;">Currency
-            <select id="fCurrency">
-              <option value="USD">$ USD</option>
-              <option value="EUR">€ EUR</option>
-              <option value="GBP">£ GBP</option>
-              <option value="ZAR">R ZAR</option>
-              <option value="AUD">$ AUD</option>
-              <option value="CAD">$ CAD</option>
-              <option value="Other">Other</option>
-            </select>
+          <div class="price-row">
+            <label style="flex:1;">Price
+              <input id="fPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+            </label>
+            <label style="width:110px;">Currency
+              <select id="fCurrency">
+                <option value="USD">$ USD</option>
+                <option value="EUR">€ EUR</option>
+                <option value="GBP">£ GBP</option>
+                <option value="ZAR">R ZAR</option>
+                <option value="AUD">$ AUD</option>
+                <option value="CAD">$ CAD</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="price-row">
+          <label style="width:110px;">ABV %
+            <input id="fAbv" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 5.0">
+          </label>
+          <label style="flex:1;">Serving
+            <input id="fServing" type="text" placeholder="e.g. 330ml can">
           </label>
         </div>
         <label>Location
           <input id="fLocation" type="text" placeholder="e.g. Dublin, Ireland">
         </label>
-        <label>Date
-          <input id="fDate" type="date">
-        </label>
+        <div id="postTryFields2">
+          <label>Date
+            <input id="fDate" type="date">
+          </label>
+        </div>
         <label>Notes
           <textarea id="fNotes" rows="3" placeholder="Smooth and creamy. A classic!"></textarea>
         </label>
 
-        <div class="venue-photo-block">
+        <div class="venue-photo-block" id="postTryFields3">
           <label>Venue / Friends Photo <span class="opt-tag">optional</span></label>
           <div id="venuePreviewWrap" hidden>
             <img id="venuePreviewImg">
@@ -254,6 +276,7 @@
     </header>
     <div class="details-form" id="detailView"></div>
     <div class="detail-footer">
+      <button id="detailMoveBtn" class="btn-secondary wide" style="margin-bottom:10px;" hidden>Move to My Shelf — I tried it!</button>
       <button id="detailDelete" class="btn-danger wide">Delete Beer</button>
     </div>
   </section>
