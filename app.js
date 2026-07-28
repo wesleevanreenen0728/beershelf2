@@ -1,5 +1,5 @@
 /* ============================================================
-   BeerShelf — vanilla JS, IndexedDB-backed, offline-first
+   BrewOS — vanilla JS, IndexedDB-backed, offline-first
    ============================================================ */
 
 /* ---------------- IndexedDB helper ---------------- */
@@ -56,32 +56,25 @@ async function idbClear(store) {
     tx.onerror = () => reject(tx.error);
   });
 }
-async function idbGet(store, key) {
-  const db = await dbPromise;
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readonly');
-    const req = tx.objectStore(store).get(key);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
 
 /* ---------------- state ---------------- */
-let beers = [];       // in-memory cache
-let settings = {};    // in-memory cache
-let editingId = null; // id of beer being edited, or null for "add new"
+let beers = [];
+let settings = {};
+let editingId = null;
 let addStep = 1;
-let rawPhotoDataUrl = null;   // pristine captured photo
+let rawPhotoDataUrl = null;
 let rotationDeg = 0;
-let croppedDataUrl = null;    // final cropped image for the beer being added/edited
-let venuePhotoDataUrl = null; // optional secondary photo (venue/friends)
+let croppedDataUrl = null;
+let venuePhotoDataUrl = null;
+let collectionSegment = 'owned';
 
 const PLACEHOLDER_IMG = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160" viewBox="0 0 120 160">' +
-  '<rect width="120" height="160" fill="#241d15" rx="14"/>' +
+  '<rect width="120" height="160" fill="#141a26" rx="14"/>' +
   '<text x="60" y="96" font-size="50" text-anchor="middle">🍺</text></svg>'
 );
 
+/* ---------------- helpers ---------------- */
 function resizeDataUrl(dataUrl, maxDim, quality) {
   return new Promise((resolve) => {
     if (!dataUrl) { resolve(null); return; }
@@ -101,10 +94,20 @@ function resizeDataUrl(dataUrl, maxDim, quality) {
     img.src = dataUrl;
   });
 }
-let collectionSegment = 'owned'; // 'owned' | 'wishlist'
+// Robust decimal parser: fixes the iOS "type=number" keypad bug where the
+// decimal point key is sometimes missing, and also accepts comma decimals.
+function parseDecimalInput(str) {
+  if (str === null || str === undefined) return null;
+  const cleaned = String(str).trim().replace(',', '.').replace(/[^0-9.]/g, '');
+  if (cleaned === '' || cleaned === '.') return null;
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
 
 /* ---------------- boot ---------------- */
 window.addEventListener('DOMContentLoaded', async () => {
+  initSplash();
+
   beers = await idbAll('beers');
   const settingsRows = await idbAll('settings');
   settingsRows.forEach(r => settings[r.key] = r.value);
@@ -118,11 +121,64 @@ window.addEventListener('DOMContentLoaded', async () => {
   bindAddFlow();
   bindDetailModal();
   bindSettings();
+  bindBadgesLink();
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js').catch(() => {});
   }
 });
+
+/* ============================================================
+   SPLASH / LAUNCH SEQUENCE
+   ============================================================ */
+function initSplash() {
+  const splash = document.getElementById('splash');
+  const video = document.getElementById('pourVideo');
+  const glassStage = document.getElementById('glassStage');
+  const logo = document.getElementById('splashLogo');
+  const liquid = document.getElementById('liquidFill');
+  const foam = document.getElementById('foamCap');
+
+  let usedFallback = false;
+
+  function finish(delay) {
+    setTimeout(() => logo.classList.add('show'), usedFallback ? 300 : 80);
+    setTimeout(() => splash.classList.add('hide'), delay);
+    setTimeout(() => { splash.style.display = 'none'; }, delay + 650);
+  }
+
+  function runFallback() {
+    if (usedFallback) return;
+    usedFallback = true;
+    glassStage.hidden = false;
+    liquid.classList.remove('filled');
+    foam.classList.remove('show');
+    void liquid.offsetWidth;
+    setTimeout(() => liquid.classList.add('filled'), 50);
+    setTimeout(() => foam.classList.add('show'), 1500);
+    finish(2200);
+  }
+
+  const fallbackTimer = setTimeout(runFallback, 1800);
+
+  video.addEventListener('error', () => { clearTimeout(fallbackTimer); runFallback(); }, { once: true });
+
+  video.addEventListener('canplaythrough', () => {
+    clearTimeout(fallbackTimer);
+    if (usedFallback) return;
+    video.classList.add('ready');
+    video.currentTime = 0;
+    video.play().catch(runFallback);
+  }, { once: true });
+
+  video.addEventListener('ended', () => {
+    if (usedFallback) return;
+    video.classList.add('holding');
+    finish(700);
+  }, { once: true });
+
+  video.load();
+}
 
 /* ---------------- navigation ---------------- */
 function bindNav() {
@@ -136,6 +192,10 @@ function goToView(name) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.nav === name));
   if (name === 'collection') renderCollection();
   if (name === 'stats') renderStats();
+  if (name === 'badges') renderBadgesFull();
+}
+function bindBadgesLink() {
+  document.getElementById('viewBadgesBtn').addEventListener('click', () => goToView('badges'));
 }
 
 /* ---------------- shelf ---------------- */
@@ -147,38 +207,31 @@ function starString(n) {
   n = Math.round(n || 0);
   return '★'.repeat(n) + '☆'.repeat(5 - n);
 }
-const STYLE_PALETTE = ['#D9B23C', '#8B5E3C', '#C97B93', '#6B4226', '#8FAE87', '#C9784A', '#7C8FBF', '#B58BC9'];
-function styleColor(style) {
-  const s = (style || '').trim().toLowerCase();
-  if (!s) return 'var(--gold)';
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) hash = s.charCodeAt(i) + ((hash << 5) - hash);
-  return STYLE_PALETTE[Math.abs(hash) % STYLE_PALETTE.length];
-}
 function renderShelf() {
   const grid = document.getElementById('shelfGrid');
   const empty = document.getElementById('shelfEmpty');
   const q = (document.getElementById('shelfSearch').value || '').toLowerCase();
-  const list = beers
-    .filter(b => !b.wishlist)
+  const owned = beers.filter(b => !b.wishlist);
+  const list = owned
     .filter(b => !q || (b.name + b.brewery + b.style).toLowerCase().includes(q))
     .sort((a, b) => b.createdAt - a.createdAt);
+
+  document.getElementById('hudCount').textContent = owned.length;
 
   grid.innerHTML = '';
   const noResultsFromFilter = list.length === 0 && q !== '';
   empty.hidden = list.length > 0 || noResultsFromFilter;
   if (noResultsFromFilter) {
-    grid.innerHTML = '<p style="text-align:center;color:#b7ab9a;padding:30px 0;">No matches.</p>';
+    grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--text-dim);padding:30px 0;font-size:12px;">NO MATCHES</p>';
     return;
   }
-
-  list.forEach(b => {
+  list.forEach((b, i) => {
     const tile = document.createElement('div');
-    tile.className = 'can-tile';
-    tile.style.setProperty('--style-color', styleColor(b.style));
-    const medallion = b.rating > 0 ? `<div class="medallion">${Math.round(b.rating)}</div>` : '';
+    tile.className = 'inv-card';
+    tile.style.animationDelay = Math.min(i * 0.05, 0.5) + 's';
+    const ring = b.rating > 0 ? `<div class="ring">${Math.round(b.rating)}.0</div>` : '';
     tile.innerHTML = `
-      ${medallion}
+      ${ring}
       <img src="${b.image || PLACEHOLDER_IMG}" alt="${escapeHtml(b.name)}">
       <div class="ct-name">${escapeHtml(b.name || 'Unnamed')}</div>
       <div class="ct-style">${escapeHtml(b.style) || '&nbsp;'}</div>
@@ -193,11 +246,6 @@ function escapeHtml(s) {
 
 /* ---------------- collection ---------------- */
 function renderCollection() {
-  const sortSelect = document.getElementById('sortSelect');
-  if (!sortSelect.dataset.bound) {
-    sortSelect.addEventListener('change', renderCollection);
-    sortSelect.dataset.bound = '1';
-  }
   const segWrap = document.getElementById('collectionSegment');
   if (!segWrap.dataset.bound) {
     segWrap.querySelectorAll('.seg-btn').forEach(btn => {
@@ -208,6 +256,11 @@ function renderCollection() {
       });
     });
     segWrap.dataset.bound = '1';
+  }
+  const sortSelect = document.getElementById('sortSelect');
+  if (!sortSelect.dataset.bound) {
+    sortSelect.addEventListener('change', renderCollection);
+    sortSelect.dataset.bound = '1';
   }
   const mode = sortSelect.value;
   let list = beers.filter(b => (collectionSegment === 'wishlist') ? b.wishlist : !b.wishlist);
@@ -220,7 +273,7 @@ function renderCollection() {
   const el = document.getElementById('collectionList');
   el.innerHTML = '';
   if (list.length === 0) {
-    el.innerHTML = `<p style="text-align:center;color:#b7ab9a;padding:30px 0;">${collectionSegment === 'wishlist' ? 'Your wishlist is empty.' : 'No beers yet.'}</p>`;
+    el.innerHTML = `<p style="text-align:center;color:var(--text-dim);padding:30px 0;font-size:12px;">${collectionSegment === 'wishlist' ? 'YOUR WISHLIST IS EMPTY' : 'NO BEERS YET'}</p>`;
     return;
   }
   list.forEach(b => {
@@ -231,7 +284,7 @@ function renderCollection() {
       <div class="cr-info">
         <div class="cr-name">${escapeHtml(b.name || 'Unnamed')}</div>
         <div class="cr-brewery">${escapeHtml(b.brewery || '')}${b.style ? ' · ' + escapeHtml(b.style) : ''}</div>
-        ${b.wishlist ? `<div class="cr-stars" style="color:var(--text-dim);">Want to try</div>` : `<div class="cr-stars">${starString(b.rating)}</div>`}
+        ${b.wishlist ? `<div class="cr-stars" style="color:var(--text-dim);">WANT TO TRY</div>` : `<div class="cr-stars">${starString(b.rating)}</div>`}
       </div>
     `;
     row.addEventListener('click', () => openDetail(b.id));
@@ -239,12 +292,162 @@ function renderCollection() {
   });
 }
 
+/* ============================================================
+   BADGES SYSTEM
+   ============================================================ */
+function computeBadgeContext() {
+  const owned = beers.filter(b => !b.wishlist);
+  const wishlistItems = beers.filter(b => b.wishlist);
+  const styles = {}, breweries = {}, locations = {};
+  let ratedCount = 0, ratingSum = 0, has5 = false, has1 = false;
+  let hasLowAbv = false, hasHighAbv = false;
+  let hasCheap = false, hasExpensive = false;
+  const spendByCur = {};
+  let venueCount = 0, notesCount = 0;
+  let nightOwl = false, earlyBird = false, weekendCount = 0;
+  const months = new Set();
+
+  owned.forEach(b => {
+    const st = (b.style || '').trim().toLowerCase();
+    if (st) styles[st] = (styles[st] || 0) + 1;
+    const br = (b.brewery || '').trim().toLowerCase();
+    if (br) breweries[br] = (breweries[br] || 0) + 1;
+    const loc = (b.location || '').trim().toLowerCase();
+    if (loc) locations[loc] = (locations[loc] || 0) + 1;
+
+    if (Number(b.rating) > 0) { ratedCount++; ratingSum += Number(b.rating); }
+    if (Number(b.rating) === 5) has5 = true;
+    if (Number(b.rating) === 1) has1 = true;
+
+    const abv = Number(b.abv);
+    if (!isNaN(abv) && abv > 0) { if (abv < 4) hasLowAbv = true; if (abv >= 8) hasHighAbv = true; }
+
+    const price = Number(b.priceAmount);
+    if (!isNaN(price) && price > 0) {
+      if (price < 1.5) hasCheap = true;
+      if (price > 10) hasExpensive = true;
+      const cur = b.priceCurrency || 'Other';
+      spendByCur[cur] = (spendByCur[cur] || 0) + price;
+    }
+
+    if (b.venueImage) venueCount++;
+    if (b.notes && b.notes.trim()) notesCount++;
+
+    if (b.createdAt) {
+      const d = new Date(b.createdAt);
+      const hr = d.getHours();
+      if (hr >= 22 || hr < 4) nightOwl = true;
+      if (hr >= 4 && hr < 9) earlyBird = true;
+      const day = d.getDay();
+      if (day === 0 || day === 6) weekendCount++;
+      months.add(d.getFullYear() + '-' + d.getMonth());
+    }
+  });
+
+  const countBy = (obj, needle) => Object.entries(obj).filter(([k]) => k.includes(needle)).reduce((s, [, v]) => s + v, 0);
+
+  return {
+    total: owned.length,
+    styleCount: Object.keys(styles).length,
+    breweryCount: Object.keys(breweries).length,
+    locationCount: Object.keys(locations).length,
+    maxBrewery: Math.max(0, ...Object.values(breweries)),
+    maxLocation: Math.max(0, ...Object.values(locations)),
+    ipaCount: countBy(styles, 'ipa'),
+    stoutCount: countBy(styles, 'stout'),
+    lagerCount: countBy(styles, 'lager'),
+    sourCount: countBy(styles, 'sour'),
+    ratedCount, avgRating: ratedCount ? ratingSum / ratedCount : 0, has5, has1,
+    hasLowAbv, hasHighAbv, hasCheap, hasExpensive,
+    maxSpend: Math.max(0, ...Object.values(spendByCur)),
+    venueCount, notesCount, nightOwl, earlyBird, weekendCount,
+    monthCount: months.size,
+    wishlistCount: wishlistItems.length
+  };
+}
+
+const BADGES = [
+  { id: 'first_pour', icon: '🍺', name: 'First Pour', desc: 'Log 1 beer', check: c => c.total >= 1 },
+  { id: 'six_pack', icon: '📦', name: 'Six Pack', desc: 'Log 6 beers', check: c => c.total >= 6 },
+  { id: 'case_closed', icon: '🗃️', name: 'Case Closed', desc: 'Log 12 beers', check: c => c.total >= 12 },
+  { id: 'keg_stand', icon: '🛢️', name: 'Keg Stand', desc: 'Log 24 beers', check: c => c.total >= 24 },
+  { id: 'half_century', icon: '🎖️', name: 'Half Century', desc: 'Log 50 beers', check: c => c.total >= 50 },
+  { id: 'century_club', icon: '💯', name: 'Century Club', desc: 'Log 100 beers', check: c => c.total >= 100 },
+  { id: 'legendary_cellar', icon: '👑', name: 'Legendary Cellar', desc: 'Log 200 beers', check: c => c.total >= 200 },
+
+  { id: 'style_explorer', icon: '🧭', name: 'Style Explorer', desc: '5 different styles', check: c => c.styleCount >= 5 },
+  { id: 'style_connoisseur', icon: '🎓', name: 'Connoisseur', desc: '10 different styles', check: c => c.styleCount >= 10 },
+  { id: 'style_master', icon: '🏅', name: 'Style Master', desc: '15 different styles', check: c => c.styleCount >= 15 },
+  { id: 'ipa_fan', icon: '🌿', name: 'IPA Fan', desc: '5 IPAs logged', check: c => c.ipaCount >= 5 },
+  { id: 'stout_lover', icon: '⚫', name: 'Stout Lover', desc: '5 Stouts logged', check: c => c.stoutCount >= 5 },
+  { id: 'lager_loyalist', icon: '🌾', name: 'Lager Loyalist', desc: '5 Lagers logged', check: c => c.lagerCount >= 5 },
+  { id: 'sour_enthusiast', icon: '🍋', name: 'Sour Enthusiast', desc: '3 Sours logged', check: c => c.sourCount >= 3 },
+
+  { id: 'brewery_hopper', icon: '🐇', name: 'Brewery Hopper', desc: '5 different breweries', check: c => c.breweryCount >= 5 },
+  { id: 'brewery_explorer', icon: '🗺️', name: 'Brewery Explorer', desc: '10 different breweries', check: c => c.breweryCount >= 10 },
+  { id: 'loyal_regular', icon: '🤝', name: 'Loyal Regular', desc: '5 beers, same brewery', check: c => c.maxBrewery >= 5 },
+
+  { id: 'local_hero', icon: '📍', name: 'Local Hero', desc: '5 beers, same spot', check: c => c.maxLocation >= 5 },
+  { id: 'globe_trotter', icon: '🌍', name: 'Globe Trotter', desc: '3 different locations', check: c => c.locationCount >= 3 },
+  { id: 'world_traveler', icon: '✈️', name: 'World Traveler', desc: '8 different locations', check: c => c.locationCount >= 8 },
+
+  { id: 'top_shelf', icon: '⭐', name: 'Top Shelf', desc: 'Give a 5-star rating', check: c => c.has5 },
+  { id: 'tough_critic', icon: '📝', name: 'Tough Critic', desc: 'Rate 10 beers', check: c => c.ratedCount >= 10 },
+  { id: 'golden_palate', icon: '🏆', name: 'Golden Palate', desc: 'Avg 4.5★ (5+ rated)', check: c => c.ratedCount >= 5 && c.avgRating >= 4.5 },
+  { id: 'honest_reviewer', icon: '💬', name: 'Honest Reviewer', desc: 'Give a 1-star rating', check: c => c.has1 },
+
+  { id: 'session_sipper', icon: '🪶', name: 'Session Sipper', desc: 'Log a beer under 4% ABV', check: c => c.hasLowAbv },
+  { id: 'heavy_hitter', icon: '🔥', name: 'Heavy Hitter', desc: 'Log a beer 8%+ ABV', check: c => c.hasHighAbv },
+  { id: 'full_spectrum', icon: '📊', name: 'Full Spectrum', desc: 'Log both light & strong', check: c => c.hasLowAbv && c.hasHighAbv },
+
+  { id: 'budget_hunter', icon: '🪙', name: 'Budget Hunter', desc: 'Log a beer under 1.50', check: c => c.hasCheap },
+  { id: 'splurge', icon: '💎', name: 'Splurge', desc: 'Log a beer over 10.00', check: c => c.hasExpensive },
+  { id: 'big_spender', icon: '💰', name: 'Big Spender', desc: 'Spend 100+ total', check: c => c.maxSpend >= 100 },
+
+  { id: 'dreamer', icon: '📋', name: 'Dreamer', desc: 'Add a Wishlist item', check: c => c.wishlistCount >= 1 },
+  { id: 'bucket_list', icon: '🗒️', name: 'Bucket List', desc: '10 Wishlist items', check: c => c.wishlistCount >= 10 },
+
+  { id: 'memory_keeper', icon: '📸', name: 'Memory Keeper', desc: '3 venue photos added', check: c => c.venueCount >= 3 },
+  { id: 'storyteller', icon: '✍️', name: 'Storyteller', desc: '5 beers with notes', check: c => c.notesCount >= 5 },
+  { id: 'night_owl', icon: '🦉', name: 'Night Owl', desc: 'Log a beer late at night', check: c => c.nightOwl },
+  { id: 'early_bird', icon: '🌅', name: 'Early Bird', desc: 'Log a beer early morning', check: c => c.earlyBird },
+  { id: 'weekend_warrior', icon: '🎉', name: 'Weekend Warrior', desc: '5 weekend entries', check: c => c.weekendCount >= 5 },
+
+  { id: 'consistent_logger', icon: '📅', name: 'Consistent Logger', desc: '3 different months', check: c => c.monthCount >= 3 },
+  { id: 'dedicated', icon: '🗓️', name: 'Dedicated', desc: '6 different months', check: c => c.monthCount >= 6 },
+  { id: 'year_round', icon: '🔄', name: 'Year Round', desc: '12 different months', check: c => c.monthCount >= 12 }
+];
+
+function renderBadgeHexes(container, badges, ctx, staggerMs) {
+  container.innerHTML = '';
+  badges.forEach(b => {
+    const unlocked = b.check(ctx);
+    const hex = document.createElement('div');
+    hex.className = 'hex' + (unlocked ? '' : ' locked');
+    hex.innerHTML = `<div class="h">${b.icon}</div><span class="l">${escapeHtml(b.name)}</span>`;
+    hex.title = b.desc;
+    container.appendChild(hex);
+  });
+  requestAnimationFrame(() => {
+    container.querySelectorAll('.hex').forEach((h, i) => {
+      setTimeout(() => h.classList.add('in'), (staggerMs || 40) * i);
+    });
+  });
+}
+function renderBadgesFull() {
+  const ctx = computeBadgeContext();
+  const unlockedCount = BADGES.filter(b => b.check(ctx)).length;
+  document.getElementById('badgesSummary').innerHTML =
+    `<b>${unlockedCount} / ${BADGES.length}</b> achievement modules unlocked`;
+  renderBadgeHexes(document.getElementById('badgesFullGrid'), BADGES, ctx, 25);
+}
+
 /* ---------------- stats ---------------- */
 function renderStats() {
   const el = document.getElementById('statsContent');
   const owned = beers.filter(b => !b.wishlist);
   if (owned.length === 0) {
-    el.innerHTML = '<p style="text-align:center;color:#b7ab9a;padding:30px 0;">Add some beers to see stats.</p>';
+    el.innerHTML = '<p style="text-align:center;color:var(--text-dim);padding:30px 0;font-size:12px;">ADD BEERS TO SEE STATS</p>';
     return;
   }
   const total = owned.length;
@@ -271,18 +474,17 @@ function renderStats() {
 
   const abvValues = owned.map(b => Number(b.abv)).filter(v => !isNaN(v) && v > 0);
   const avgAbv = abvValues.length ? (abvValues.reduce((s, v) => s + v, 0) / abvValues.length).toFixed(1) : null;
-  const strongest = owned.filter(b => !isNaN(Number(b.abv)) && b.abv).sort((a, b) => Number(b.abv) - Number(a.abv))[0];
 
-  const badges = computeBadges();
+  const ctx = computeBadgeContext();
+  const unlockedCount = BADGES.filter(b => b.check(ctx)).length;
+  const previewBadges = [...BADGES].sort((a, b) => (b.check(ctx) ? 1 : 0) - (a.check(ctx) ? 1 : 0)).slice(0, 4);
 
   el.innerHTML = `
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-big">${total}</div><div class="stat-label">Total Beers</div></div>
-      <div class="stat-card"><div class="stat-big">${avg}</div><div class="stat-label">Average Rating</div></div>
-      <div class="stat-card"><div class="stat-big">${breweries}</div><div class="stat-label">Breweries</div></div>
-      <div class="stat-card"><div class="stat-big">${styleEntries.length}</div><div class="stat-label">Styles Tried</div></div>
-      ${avgAbv ? `<div class="stat-card"><div class="stat-big">${avgAbv}%</div><div class="stat-label">Average ABV</div></div>` : ''}
-      ${strongest ? `<div class="stat-card"><div class="stat-big">${Number(strongest.abv).toFixed(1)}%</div><div class="stat-label">Strongest: ${escapeHtml(strongest.name)}</div></div>` : ''}
+      <div class="stat-card"><div class="stat-big">${total}</div><div class="stat-label">Total Units</div></div>
+      <div class="stat-card"><div class="stat-big">${avg}</div><div class="stat-label">Avg Rating</div></div>
+      <div class="stat-card"><div class="stat-big">${breweries}</div><div class="stat-label">Sources</div></div>
+      <div class="stat-card"><div class="stat-big">${avgAbv || '—'}${avgAbv ? '%' : ''}</div><div class="stat-label">Avg ABV</div></div>
     </div>
     ${spendEntries.length ? `
     <div class="stat-card">
@@ -292,60 +494,40 @@ function renderStats() {
       `).join('')}
     </div>` : ''}
     <div class="stat-card">
-      <div class="stat-label" style="margin-bottom:6px;">Top Styles</div>
+      <div class="stat-label" style="margin-bottom:2px;">Top Styles</div>
       ${styleEntries.map(([s, c]) => `
         <div class="bar-row">
-          <span style="width:90px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(s)}</span>
-          <div class="bar-track"><div class="bar-fill" style="width:${(c / maxCount) * 100}%"></div></div>
+          <span style="width:80px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(s)}</span>
+          <div class="bar-track"><div class="bar-fill" data-w="${(c / maxCount) * 100}"></div></div>
           <span style="width:18px;text-align:right;">${c}</span>
         </div>
       `).join('')}
     </div>
     <div class="stat-card">
-      <div class="stat-label" style="margin-bottom:10px;">Badges</div>
-      <div class="badges-grid">
-        ${badges.map(bd => `
-          <div class="badge-card${bd.unlocked ? ' unlocked' : ''}">
-            <div class="badge-icon">${bd.icon}</div>
-            <div class="badge-name">${bd.name}</div>
-            <div class="badge-desc">${bd.desc}</div>
-          </div>
-        `).join('')}
-      </div>
+      <div class="stat-label" style="margin-bottom:8px;">${unlockedCount} / ${BADGES.length} Badges Unlocked</div>
+      <div class="hex-row-full" id="statsBadgePreview" style="padding:0;"></div>
     </div>
   `;
-}
-
-function computeBadges() {
-  const owned = beers.filter(b => !b.wishlist);
-  const total = owned.length;
-  const styleCount = new Set(owned.map(b => (b.style || '').trim()).filter(Boolean)).size;
-  const breweryCount = new Set(owned.map(b => (b.brewery || '').trim()).filter(Boolean)).size;
-  const locationCount = new Set(owned.map(b => (b.location || '').trim()).filter(Boolean)).size;
-  const avgRating = total ? owned.reduce((s, b) => s + (Number(b.rating) || 0), 0) / total : 0;
-  const hasHeavyHitter = owned.some(b => Number(b.abv) >= 8);
-
-  return [
-    { icon: '🍺', name: 'First Pour', desc: '1 beer added', unlocked: total >= 1 },
-    { icon: '📦', name: 'Six Pack', desc: '6 beers added', unlocked: total >= 6 },
-    { icon: '🧊', name: 'Case Closed', desc: '24 beers added', unlocked: total >= 24 },
-    { icon: '🏆', name: 'Century Club', desc: '100 beers added', unlocked: total >= 100 },
-    { icon: '🌍', name: 'World Traveler', desc: '5+ locations', unlocked: locationCount >= 5 },
-    { icon: '🏭', name: 'Brewery Hopper', desc: '5+ breweries', unlocked: breweryCount >= 5 },
-    { icon: '🎨', name: 'Style Explorer', desc: '5+ styles tried', unlocked: styleCount >= 5 },
-    { icon: '🧐', name: 'Connoisseur', desc: '4★+ avg, 10+ beers', unlocked: total >= 10 && avgRating >= 4 },
-    { icon: '💪', name: 'Heavy Hitter', desc: 'A beer 8%+ ABV', unlocked: hasHeavyHitter }
-  ];
+  requestAnimationFrame(() => {
+    el.querySelectorAll('.bar-fill').forEach(bar => {
+      requestAnimationFrame(() => { bar.style.width = bar.dataset.w + '%'; });
+    });
+  });
+  renderBadgeHexes(document.getElementById('statsBadgePreview'), previewBadges, ctx, 60);
 }
 
 /* ---------------- settings ---------------- */
 function applyBackground() {
   const view = document.getElementById('view-shelf');
-  const overlay = 'linear-gradient(180deg, rgba(10,8,6,0.55) 0px, rgba(9,7,5,0.82) 320px, rgba(8,6,4,0.93) 650px, rgba(6,5,4,0.97) 1100px)';
   if (settings.bgImage) {
-    view.style.backgroundImage = `${overlay}, url('${settings.bgImage}')`;
+    view.style.backgroundImage =
+      `linear-gradient(180deg, rgba(6,8,16,0.35) 0%, rgba(6,8,16,0.55) 40%, rgba(6,8,16,0.85) 100%), url('${settings.bgImage}')`;
+    view.style.backgroundSize = 'cover';
+    view.style.backgroundPosition = 'center top';
+    view.style.backgroundAttachment = 'fixed';
   } else {
     view.style.backgroundImage = '';
+    view.style.backgroundAttachment = '';
   }
 }
 function bindSettings() {
@@ -363,7 +545,7 @@ function bindSettings() {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     const nameSlug = (settings.displayName || 'my').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'my';
-    a.download = `${nameSlug}-beershelf-share.html`;
+    a.download = `${nameSlug}-brewos-share.html`;
     a.click();
   });
 
@@ -389,7 +571,7 @@ function bindSettings() {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `beershelf-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.download = `brewos-backup-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
   });
 
@@ -428,7 +610,6 @@ function bindSettings() {
   });
 }
 
-/* ---------------- image resize helper ---------------- */
 function resizeImageFile(file, maxDim, quality) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -459,7 +640,6 @@ function resizeImageFile(file, maxDim, quality) {
 function bindAddFlow() {
   const cameraInput = document.getElementById('cameraInput');
   document.getElementById('takePhotoBtn').addEventListener('click', () => {
-    cameraInput.removeAttribute('data-nolib');
     cameraInput.setAttribute('capture', 'environment');
     cameraInput.click();
   });
@@ -500,11 +680,8 @@ function bindAddFlow() {
     renderRotatedImage();
   });
 
-  document.getElementById('changePhotoBtn').addEventListener('click', () => {
-    goToAddStepIdx(1);
-  });
+  document.getElementById('changePhotoBtn').addEventListener('click', () => goToAddStepIdx(1));
 
-  // style quick-pick chips
   document.getElementById('styleChips').addEventListener('click', (e) => {
     const chip = e.target.closest('.chip');
     if (!chip) return;
@@ -512,7 +689,6 @@ function bindAddFlow() {
     document.querySelectorAll('#styleChips .chip').forEach(c => c.classList.toggle('active', c === chip));
   });
 
-  // venue / friends photo
   const venueFileInput = document.getElementById('venueFileInput');
   document.getElementById('venueAddBtn').addEventListener('click', () => venueFileInput.click());
   venueFileInput.addEventListener('change', async (e) => {
@@ -531,14 +707,12 @@ function bindAddFlow() {
     document.getElementById('venueAddWrap').hidden = false;
   });
 
-  // crop zoom
   document.getElementById('zoomSlider').addEventListener('input', (e) => {
     const pct = Number(e.target.value);
     document.getElementById('cropImage').style.transform = `scale(${pct / 100})`;
     requestAnimationFrame(recalcCropBoundsAfterZoom);
   });
 
-  // star picker
   const picker = document.getElementById('fRating');
   picker.querySelectorAll('span').forEach(star => {
     star.addEventListener('click', () => {
@@ -560,9 +734,9 @@ function openAddFlow(existingBeer, forceConvert) {
   document.getElementById('fLocation').value = existingBeer?.location || '';
   document.getElementById('fDate').value = existingBeer?.date || new Date().toISOString().slice(0, 10);
   document.getElementById('fNotes').value = existingBeer?.notes || '';
-  document.getElementById('fPrice').value = existingBeer?.priceAmount || '';
+  document.getElementById('fPrice').value = (existingBeer?.priceAmount != null) ? existingBeer.priceAmount : '';
   document.getElementById('fCurrency').value = existingBeer?.priceCurrency || 'USD';
-  document.getElementById('fAbv').value = existingBeer?.abv || '';
+  document.getElementById('fAbv').value = (existingBeer?.abv != null) ? existingBeer.abv : '';
   document.getElementById('fServing').value = existingBeer?.serving || '';
   const isWishlist = forceConvert ? false : !!existingBeer?.wishlist;
   document.getElementById('fWishlist').checked = isWishlist;
@@ -605,7 +779,7 @@ function goToAddStepIdx(n) {
   document.querySelectorAll('.flow-step').forEach(s => s.classList.remove('active'));
   document.getElementById('addStep' + n).classList.add('active');
   document.getElementById('addStepTitle').textContent =
-    n === 1 ? 'Add Photo' : n === 2 ? 'Crop' : (editingId ? 'Edit Details' : 'Add Details');
+    n === 1 ? 'New Scan' : n === 2 ? 'Crop' : (editingId ? 'Edit Details' : 'Scan Details');
   document.getElementById('addNext').textContent = n === 3 ? 'Save' : 'Next';
   document.getElementById('addBack').textContent = n === 1 ? 'Cancel' : 'Back';
 
@@ -647,8 +821,8 @@ function updateStarPicker() {
 }
 
 /* ---- crop stage ---- */
-let cropState = null; // {x,y,w,h} in stage-relative px
-let imgBounds = null; // {left,top,w,h} in stage-relative px
+let cropState = null;
+let imgBounds = null;
 let dragInfo = null;
 
 function renderRotatedImage() {
@@ -729,7 +903,6 @@ function drawCropBox() {
 }
 function clamp(v, min, max) { return Math.min(Math.max(v, min), max); }
 
-// handle drag (resize corners)
 document.addEventListener('pointerdown', (e) => {
   const handle = e.target.closest('.crop-handle');
   const box = e.target.closest('.crop-box');
@@ -778,6 +951,9 @@ document.addEventListener('pointermove', (e) => {
 });
 document.addEventListener('pointerup', () => { dragInfo = null; });
 
+// Produces the final cropped can/bottle image: rounded-rect mask (soft corners
+// instead of a harsh rectangle) plus a subtle cylindrical light/shadow overlay
+// down the width, so it reads more like a curved can and less like a sticker.
 function computeCroppedImage() {
   const cropImg = document.getElementById('cropImage');
   const scaleX = cropImg.naturalWidth / imgBounds.w;
@@ -797,9 +973,7 @@ function computeCroppedImage() {
   canvas.width = outW; canvas.height = outH;
   const ctx = canvas.getContext('2d');
 
-  // Rounded-rect alpha mask so the tight crop reads as a soft can/bottle
-  // shape rather than a harsh rectangle, even though the underlying crop is a rectangle.
-  const radius = Math.min(outW, outH) * 0.12;
+  const radius = Math.min(outW, outH) * 0.16;
   ctx.beginPath();
   ctx.moveTo(radius, 0);
   ctx.arcTo(outW, 0, outW, outH, radius);
@@ -810,14 +984,26 @@ function computeCroppedImage() {
   ctx.clip();
 
   ctx.drawImage(cropImg, sx, sy, sw, sh, 0, 0, outW, outH);
+
+  const shade = ctx.createLinearGradient(0, 0, outW, 0);
+  shade.addColorStop(0, 'rgba(0,0,0,0.32)');
+  shade.addColorStop(0.16, 'rgba(255,255,255,0.10)');
+  shade.addColorStop(0.5, 'rgba(255,255,255,0.24)');
+  shade.addColorStop(0.84, 'rgba(255,255,255,0.06)');
+  shade.addColorStop(1, 'rgba(0,0,0,0.32)');
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, outW, outH);
+  ctx.globalCompositeOperation = 'source-over';
+
   return canvas.toDataURL('image/png');
 }
 
 /* ---- save beer ---- */
 async function saveBeer() {
   const rating = Number(document.getElementById('fRating').dataset.value || 0);
-  const priceVal = document.getElementById('fPrice').value;
-  const abvVal = document.getElementById('fAbv').value;
+  const priceVal = parseDecimalInput(document.getElementById('fPrice').value);
+  const abvVal = parseDecimalInput(document.getElementById('fAbv').value);
   const isWishlist = document.getElementById('fWishlist').checked;
   const beer = {
     id: editingId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
@@ -827,9 +1013,9 @@ async function saveBeer() {
     brewery: document.getElementById('fBrewery').value.trim(),
     style: document.getElementById('fStyle').value.trim(),
     rating: isWishlist ? 0 : rating,
-    priceAmount: (!isWishlist && priceVal) ? Number(priceVal) : null,
+    priceAmount: (!isWishlist && priceVal != null) ? priceVal : null,
     priceCurrency: document.getElementById('fCurrency').value,
-    abv: abvVal ? Number(abvVal) : null,
+    abv: abvVal,
     serving: document.getElementById('fServing').value.trim(),
     wishlist: isWishlist,
     location: document.getElementById('fLocation').value.trim(),
@@ -870,7 +1056,7 @@ function bindDetailModal() {
   document.getElementById('detailMoveBtn').addEventListener('click', () => {
     const b = beers.find(x => x.id === currentDetailId);
     closeDetail();
-    openAddFlow(b, true); // forceConvert: requires a real photo + crop, clears wishlist flag
+    openAddFlow(b, true);
   });
   document.getElementById('detailDelete').addEventListener('click', async () => {
     if (!confirm('Delete this beer?')) return;
@@ -888,24 +1074,61 @@ function openDetail(id) {
   const priceStr = (b.priceAmount != null && b.priceAmount !== '')
     ? `${currencySymbols[b.priceCurrency] || ''}${Number(b.priceAmount).toFixed(2)} ${!currencySymbols[b.priceCurrency] ? (b.priceCurrency || '') : ''}`.trim()
     : '—';
+
+  const hasAbv = b.abv != null && !isNaN(Number(b.abv));
+  const abvPct = hasAbv ? Math.min(100, (Number(b.abv) / 12) * 100) : 0;
+  const ratingPct = b.rating > 0 ? (Number(b.rating) / 5) * 100 : 0;
+
   const view = document.getElementById('detailView');
   view.innerHTML = `
     <div class="detail-preview"><img src="${b.image || PLACEHOLDER_IMG}"></div>
     <div class="detail-name-big">${escapeHtml(b.name)}</div>
     ${b.brewery ? `<div class="detail-brewery-sub">${escapeHtml(b.brewery)}</div>` : ''}
-    ${!b.wishlist && b.rating > 0 ? `<div class="medallion-big">${Math.round(b.rating)}/5</div>` : ''}
-    ${b.wishlist ? `<div class="wishlist-badge">📋 On your Wishlist — haven't tried it yet</div>` : ''}
+    ${b.wishlist ? `<div class="wishlist-badge">📋 ON YOUR WISHLIST — HAVEN'T TRIED IT YET</div>` : ''}
     <div class="dv-row"><span class="dv-k">Style</span><span>${escapeHtml(b.style) || '—'}</span></div>
-    <div class="dv-row"><span class="dv-k">ABV</span><span>${b.abv ? Number(b.abv).toFixed(1) + '%' : '—'}</span></div>
     <div class="dv-row"><span class="dv-k">Serving</span><span>${escapeHtml(b.serving) || '—'}</span></div>
     ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Price</span><span>${priceStr}</span></div>` : ''}
     <div class="dv-row"><span class="dv-k">Location</span><span>${escapeHtml(b.location) || '—'}</span></div>
     ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Date</span><span>${b.date || '—'}</span></div>` : ''}
+
+    <div class="gauge-wrap">
+      <div class="gauge" id="abvGauge"><span>${hasAbv ? Number(b.abv).toFixed(1) + '%' : '—'}</span></div>
+      <div>
+        <div class="gauge-label">ABV Output</div>
+        <div class="gauge-label" style="color:var(--amber-soft);margin-top:2px;">${hasAbv ? Math.round(abvPct) + '% of range' : 'Not logged'}</div>
+      </div>
+    </div>
+    ${!b.wishlist ? `
+    <div class="gauge-wrap">
+      <div class="gauge" id="ratingGauge"><span>${b.rating > 0 ? Math.round(b.rating) + '/5' : '—'}</span></div>
+      <div>
+        <div class="gauge-label">Rating</div>
+        <div class="gauge-label" style="color:var(--amber-soft);margin-top:2px;">${starString(b.rating)}</div>
+      </div>
+    </div>` : ''}
+
     ${b.notes ? `<div class="dv-notes">${escapeHtml(b.notes)}</div>` : ''}
-    ${b.venueImage ? `<div class="dv-k" style="margin-top:14px;font-size:13px;">Where you had it</div><img src="${b.venueImage}" style="width:100%;border-radius:12px;margin-top:8px;">` : ''}
+    ${b.venueImage ? `<div class="dv-k" style="margin-top:14px;">Where you had it</div><img src="${b.venueImage}" style="width:100%;border-radius:12px;margin-top:8px;">` : ''}
   `;
   document.getElementById('detailMoveBtn').hidden = !b.wishlist;
   document.getElementById('detailModal').classList.add('active');
+
+  requestAnimationFrame(() => {
+    const abvGauge = document.getElementById('abvGauge');
+    if (abvGauge) {
+      abvGauge.style.background = 'conic-gradient(var(--amber) 0% 0%, rgba(255,255,255,0.07) 0% 100%)';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        abvGauge.style.background = `conic-gradient(var(--amber) 0% ${abvPct}%, rgba(255,255,255,0.07) ${abvPct}% 100%)`;
+      }));
+    }
+    const ratingGauge = document.getElementById('ratingGauge');
+    if (ratingGauge) {
+      ratingGauge.style.background = 'conic-gradient(var(--cyan) 0% 0%, rgba(255,255,255,0.07) 0% 100%)';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        ratingGauge.style.background = `conic-gradient(var(--cyan) 0% ${ratingPct}%, rgba(255,255,255,0.07) ${ratingPct}% 100%)`;
+      }));
+    }
+  });
 }
 function closeDetail() {
   document.getElementById('detailModal').classList.remove('active');
@@ -916,11 +1139,11 @@ function closeDetail() {
    SHARE — standalone, self-contained, read-only HTML snapshot
    ============================================================ */
 function buildShareableHtml() {
-  const title = settings.displayName ? escapeHtml(settings.displayName) : 'My BeerShelf';
-  const data = beers.map(b => ({
+  const title = settings.displayName ? escapeHtml(settings.displayName) : 'My BrewOS Collection';
+  const data = beers.filter(b => !b.wishlist).map(b => ({
     image: b.image, venueImage: b.venueImage || null,
     name: b.name, brewery: b.brewery, style: b.style, rating: b.rating,
-    priceAmount: b.priceAmount, priceCurrency: b.priceCurrency,
+    priceAmount: b.priceAmount, priceCurrency: b.priceCurrency, abv: b.abv, serving: b.serving,
     location: b.location, date: b.date, notes: b.notes,
     createdAt: b.createdAt
   })).sort((a, b) => b.createdAt - a.createdAt);
@@ -930,30 +1153,28 @@ function buildShareableHtml() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title>
 <style>
-:root{--bg:#0f0d0a;--panel:#1a1611;--gold:#e8a33d;--gold-light:#ffd68c;--text:#f2ece3;--text-dim:#b7ab9a;}
+:root{--bg:#060810;--panel:#141a26;--amber:#FFB300;--amber-soft:#FFD873;--text:#EAF1FA;--text-dim:#7C8AA3;}
 *{box-sizing:border-box;}
 body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
 .wrap{max-width:520px;margin:0 auto;padding-bottom:40px;}
-.hero{padding:36px 20px 26px;text-align:center;background:radial-gradient(circle at 50% 20%,#3a2c1c,#14100b 70%);}
-.hero h1{margin:0;color:var(--gold);font-family:Georgia,serif;font-size:30px;letter-spacing:1px;}
-.hero p{color:#e9e2d6;font-size:13px;margin:6px 0 0;opacity:.85;}
-.badge{display:inline-block;margin-top:10px;font-size:11px;background:rgba(232,163,61,0.15);color:var(--gold-light);padding:4px 10px;border-radius:999px;border:1px solid rgba(232,163,61,0.3);}
-.shelf-row{margin:0 10px 24px;}
-.shelf-items{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:10px 8px 16px;}
-.can{width:74px;text-align:center;cursor:pointer;}
-.can img{width:100%;height:92px;object-fit:contain;filter:drop-shadow(0 8px 5px rgba(0,0,0,.55));}
+.hero{padding:36px 20px 26px;text-align:center;border-bottom:1px solid rgba(255,179,0,0.25);}
+.hero h1{margin:0;color:var(--amber);font-size:26px;letter-spacing:.5px;}
+.hero p{color:#c9d3e3;font-size:13px;margin:6px 0 0;opacity:.85;}
+.badge{display:inline-block;margin-top:10px;font-size:11px;background:rgba(255,179,0,0.12);color:var(--amber-soft);padding:4px 10px;border-radius:999px;border:1px solid rgba(255,179,0,0.3);}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:16px;}
+.can{background:var(--panel);border:1px solid rgba(255,179,0,0.2);border-radius:12px;padding:10px 8px;text-align:center;cursor:pointer;}
+.can img{width:100%;height:76px;object-fit:contain;object-position:center bottom;}
 .can .nm{font-size:11px;font-weight:600;margin-top:6px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
-.can .st{font-size:9px;color:var(--gold);margin-top:2px;}
-.plank{height:30px;border-radius:3px;background:linear-gradient(180deg,#8a5a2c 0%,#6b431f 55%,#3a2412 60%,#241408 100%);box-shadow:0 6px 10px rgba(0,0,0,.45);}
+.can .st{font-size:9px;color:var(--amber);margin-top:2px;}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:flex-end;justify-content:center;z-index:10;}
 .modal.active{display:flex;}
 .sheet{background:var(--panel);width:100%;max-width:520px;max-height:85vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:20px;}
 .sheet img.main{width:130px;display:block;margin:0 auto 14px;object-fit:contain;max-height:170px;}
-.row{display:flex;justify-content:space-between;font-size:14px;padding:9px 0;border-bottom:1px solid #241d15;}
+.row{display:flex;justify-content:space-between;font-size:14px;padding:9px 0;border-bottom:1px dashed rgba(255,179,0,0.2);}
 .row span:first-child{color:var(--text-dim);}
-.notes{font-size:14px;line-height:1.5;padding-top:8px;}
+.notes{font-size:14px;line-height:1.5;padding-top:8px;font-style:italic;}
 .venueimg{width:100%;border-radius:12px;margin-top:10px;}
-.closeBtn{display:block;margin:16px auto 0;background:none;border:1px solid #3a3022;color:var(--text-dim);padding:10px 20px;border-radius:10px;}
+.closeBtn{display:block;margin:16px auto 0;background:none;border:1px solid rgba(255,179,0,0.3);color:var(--text-dim);padding:10px 20px;border-radius:10px;}
 .footer-note{text-align:center;color:var(--text-dim);font-size:11px;padding:20px;}
 </style></head>
 <body>
@@ -963,8 +1184,8 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,B
     <p>${data.length} beer${data.length === 1 ? '' : 's'} in this collection</p>
     <span class="badge">Shared snapshot · view only</span>
   </div>
-  <div id="shelves"></div>
-  <p class="footer-note">This is a read-only snapshot shared from BeerShelf. It won't update automatically — ask for a fresh copy anytime.</p>
+  <div class="grid" id="grid"></div>
+  <p class="footer-note">This is a read-only snapshot shared from BrewOS. It won't update automatically — ask for a fresh copy anytime.</p>
 </div>
 <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
 <script>
@@ -972,24 +1193,13 @@ const DATA = ${JSON.stringify(data)};
 function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function stars(n){n=Math.round(n||0);return '★'.repeat(n)+'☆'.repeat(5-n);}
 const CUR = {USD:'$',EUR:'€',GBP:'£',ZAR:'R',AUD:'$',CAD:'$'};
-const shelves = document.getElementById('shelves');
-const PER_ROW = 4;
-for (let i=0;i<DATA.length;i+=PER_ROW){
-  const rowBeers = DATA.slice(i,i+PER_ROW);
-  const row = document.createElement('div'); row.className='shelf-row';
-  const items = document.createElement('div'); items.className='shelf-items';
-  rowBeers.forEach((b) => {
-    const idx = DATA.indexOf(b);
-    const el = document.createElement('div'); el.className='can';
-    el.innerHTML = '<img src="'+b.image+'"><div class="nm">'+esc(b.name||'Unnamed')+'</div><div class="st">'+stars(b.rating)+'</div>';
-    el.addEventListener('click', () => openDetail(idx));
-    items.appendChild(el);
-  });
-  row.appendChild(items);
-  const plank = document.createElement('div'); plank.className='plank';
-  row.appendChild(plank);
-  shelves.appendChild(row);
-}
+const grid = document.getElementById('grid');
+DATA.forEach((b, idx) => {
+  const el = document.createElement('div'); el.className = 'can';
+  el.innerHTML = '<img src="'+b.image+'"><div class="nm">'+esc(b.name||'Unnamed')+'</div><div class="st">'+stars(b.rating)+'</div>';
+  el.addEventListener('click', () => openDetail(idx));
+  grid.appendChild(el);
+});
 function openDetail(idx){
   const b = DATA[idx];
   const priceStr = (b.priceAmount!=null && b.priceAmount!=='') ? ((CUR[b.priceCurrency]||'')+Number(b.priceAmount).toFixed(2)+' '+(!CUR[b.priceCurrency]?(b.priceCurrency||''):'')) : '—';
@@ -998,7 +1208,9 @@ function openDetail(idx){
     '<div class="row"><span>Name</span><span>'+esc(b.name)+'</span></div>'+
     '<div class="row"><span>Brewery</span><span>'+(esc(b.brewery)||'—')+'</span></div>'+
     '<div class="row"><span>Style</span><span>'+(esc(b.style)||'—')+'</span></div>'+
-    '<div class="row"><span>Rating</span><span style="color:#e8a33d;">'+stars(b.rating)+'</span></div>'+
+    '<div class="row"><span>ABV</span><span>'+(b.abv?Number(b.abv).toFixed(1)+'%':'—')+'</span></div>'+
+    '<div class="row"><span>Serving</span><span>'+(esc(b.serving)||'—')+'</span></div>'+
+    '<div class="row"><span>Rating</span><span style="color:#FFB300;">'+stars(b.rating)+'</span></div>'+
     '<div class="row"><span>Price</span><span>'+priceStr+'</span></div>'+
     '<div class="row"><span>Location</span><span>'+(esc(b.location)||'—')+'</span></div>'+
     '<div class="row"><span>Date</span><span>'+(b.date||'—')+'</span></div>'+

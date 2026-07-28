@@ -1,4 +1,4 @@
-const CACHE_NAME = 'beershelf-cache-v6';
+const CACHE_NAME = 'brewos-cache-v1';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './icon-192.png',
   './icon-512.png',
   './apple-touch-icon.png',
+  './pour.mp4'
 ];
 
 self.addEventListener('install', (e) => {

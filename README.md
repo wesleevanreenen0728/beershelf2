@@ -1,8 +1,9 @@
-# BeerShelf — Setup Guide
+# BrewOS — Setup Guide
 
-A personal, offline-first beer collection app. All your data (photos, ratings, notes)
-is stored only on your own phone using the browser's local database — nothing is
-uploaded anywhere.
+A personal, offline-first beer inventory app with a futuristic HUD look, a
+pour-in launch animation, and 38 collectible badges. All your data (photos,
+ratings, notes) is stored only on your own phone — nothing is uploaded
+anywhere.
 
 ## 1. Put it on GitHub Pages (free, ~5 minutes)
 

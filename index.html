@@ -3,20 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>BeerShelf</title>
+<title>BrewOS</title>
 
-<!-- PWA / iOS home-screen support -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#12100d">
+<meta name="theme-color" content="#060810">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="BeerShelf">
+<meta name="apple-mobile-web-app-title" content="BrewOS">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="icon-192.png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="style.css">
 </head>
@@ -24,35 +23,68 @@
 
 <div id="app">
 
-  <!-- ============ SHELF VIEW ============ -->
+  <!-- ============ SPLASH / LAUNCH ============ -->
+  <div id="splash">
+    <video id="pourVideo" muted playsinline preload="auto">
+      <source src="pour.mp4" type="video/mp4">
+    </video>
+
+    <div class="glass-stage" id="glassStage" hidden>
+      <svg class="glass-svg" viewBox="0 0 200 340">
+        <defs>
+          <clipPath id="glassClip"><path d="M25,40 L55,295 Q57,300 62,300 L138,300 Q143,300 145,295 L175,40 Z"/></clipPath>
+          <linearGradient id="liquidGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#FFD873"/><stop offset="45%" stop-color="#FFB300"/><stop offset="100%" stop-color="#c9780f"/>
+          </linearGradient>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <g clip-path="url(#glassClip)">
+          <rect id="liquidFill" x="20" y="30" width="160" height="275" fill="url(#liquidGrad)"/>
+          <circle class="bubble" cx="70" cy="290" r="3" style="animation-delay:.3s;"/>
+          <circle class="bubble" cx="115" cy="288" r="3.4" style="animation-delay:.1s;"/>
+          <circle class="bubble" cx="95" cy="295" r="2.4" style="animation-delay:.9s;"/>
+          <ellipse id="foamCap" cx="100" cy="52" rx="72" ry="13" fill="#FFF3D9"/>
+        </g>
+        <path d="M25,40 L55,295 Q57,300 62,300 L138,300 Q143,300 145,295 L175,40 Z" fill="none" stroke="#FFB300" stroke-width="3" filter="url(#glow)"/>
+      </svg>
+    </div>
+
+    <div class="splash-logo" id="splashLogo">
+      <div class="title">BREW<span>//</span>OS</div>
+      <div class="sub">INITIALIZING CELLAR INTERFACE...</div>
+    </div>
+  </div>
+
+  <!-- ============ SHELF (INVENTORY) VIEW ============ -->
   <section id="view-shelf" class="view active">
-    <header class="hero">
-      <button class="icon-btn hero-settings" data-nav="settings" aria-label="Settings">⚙</button>
-      <div class="hero-title">
-        <div class="hero-logo">🍺</div>
-        <h1>BeerShelf</h1>
-        <p>Your Personal Beer Collection</p>
-      </div>
+    <header class="hud-header">
+      <button class="icon-btn hud-settings" data-nav="settings" aria-label="Settings">⚙</button>
+      <div class="hud-tag"><span class="pulse-dot"></span> SYSTEM ONLINE</div>
+      <div class="hud-title">BREW//OS</div>
+      <div class="hud-sub">INVENTORY: <b id="hudCount">0</b> UNITS TRACKED</div>
     </header>
 
     <div class="shelf-toolbar">
-      <input id="shelfSearch" type="search" placeholder="Search your shelf...">
+      <input id="shelfSearch" type="search" placeholder="◎ QUERY INVENTORY...">
     </div>
 
-    <div id="shelfGrid" class="shelf-grid"></div>
+    <div id="shelfGrid" class="inv-grid"></div>
     <div id="shelfEmpty" class="empty-state" hidden>
-      <p>Your shelf is empty.</p>
-      <p class="empty-sub">Tap "+ Add Beer" to add your first one.</p>
+      <p>◇ NO UNITS IN INVENTORY</p>
+      <p class="empty-sub">Tap "Initiate New Scan" to log your first beer.</p>
     </div>
 
-    <button id="addBeerBtn" class="fab">＋ Add Beer</button>
+    <div class="fab-row"><button id="addBeerBtn" class="fab">▸ INITIATE NEW SCAN</button></div>
   </section>
 
   <!-- ============ COLLECTION VIEW ============ -->
   <section id="view-collection" class="view">
-    <header class="page-header"><h2>Collection</h2></header>
+    <header class="page-header"><h2>Collection Log</h2></header>
     <div class="segmented" id="collectionSegment">
-      <button type="button" class="seg-btn active" data-seg="owned">My Collection</button>
+      <button type="button" class="seg-btn active" data-seg="owned">My Beers</button>
       <button type="button" class="seg-btn" data-seg="wishlist">Wishlist</button>
     </div>
     <div class="collection-toolbar">
@@ -69,8 +101,21 @@
 
   <!-- ============ STATS VIEW ============ -->
   <section id="view-stats" class="view">
-    <header class="page-header"><h2>Stats</h2></header>
+    <header class="page-header"><h2>System Stats</h2></header>
     <div id="statsContent" class="stats-content"></div>
+    <div class="badges-link-row">
+      <button id="viewBadgesBtn" class="btn-secondary wide">▸ View All Badges</button>
+    </div>
+  </section>
+
+  <!-- ============ BADGES VIEW ============ -->
+  <section id="view-badges" class="view">
+    <header class="page-header with-back">
+      <button id="badgesBack" class="link-btn" data-nav="stats">← Back</button>
+      <h2>Achievement Modules</h2>
+    </header>
+    <div id="badgesSummary" class="badges-summary"></div>
+    <div id="badgesFullGrid" class="hex-row-full"></div>
   </section>
 
   <!-- ============ SETTINGS VIEW ============ -->
@@ -92,7 +137,7 @@
         <h3>Share Your Collection</h3>
         <p class="settings-sub">Create a snapshot file of your shelf that anyone can open in a browser — no account or internet needed on their end. It's read-only and won't update after you send it.</p>
         <label style="display:block;margin-bottom:10px;">Your name (shown on the shared shelf)
-          <input id="fDisplayName" type="text" placeholder="e.g. Reg's BeerShelf" style="width:100%;margin-top:6px;background:var(--panel2);border:1px solid #3a3022;border-radius:10px;padding:10px 12px;color:var(--text);font-size:14px;">
+          <input id="fDisplayName" type="text" placeholder="e.g. Reg's BeerShelf" style="width:100%;margin-top:6px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--text);font-size:14px;">
         </label>
         <button id="shareBtn" class="btn-secondary wide">Create Shareable File</button>
       </div>
@@ -115,7 +160,7 @@
 
       <div class="settings-card">
         <h3>About</h3>
-        <p class="settings-sub">BeerShelf v1.0 — a personal, offline-first beer collection app. All data lives only on this device.</p>
+        <p class="settings-sub">BrewOS v2.0 — a personal, offline-first beer collection app. All data lives only on this device.</p>
       </div>
     </div>
   </section>
@@ -123,13 +168,13 @@
   <!-- ============ BOTTOM NAV ============ -->
   <nav class="bottom-nav">
     <button class="nav-btn active" data-nav="shelf">
-      <span class="nav-icon">🗄</span><span>Shelf</span>
+      <span class="nav-icon">◫</span><span>Inventory</span>
     </button>
     <button class="nav-btn" data-nav="collection">
-      <span class="nav-icon">🍾</span><span>Collection</span>
+      <span class="nav-icon">▤</span><span>Log</span>
     </button>
     <button class="nav-btn" data-nav="stats">
-      <span class="nav-icon">📊</span><span>Stats</span>
+      <span class="nav-icon">◎</span><span>Stats</span>
     </button>
     <button class="nav-btn" data-nav="settings">
       <span class="nav-icon">⚙</span><span>Settings</span>
@@ -140,7 +185,7 @@
   <section id="addFlow" class="overlay">
     <header class="flow-header">
       <button id="addBack" class="link-btn">Back</button>
-      <span id="addStepTitle">Add Beer</span>
+      <span id="addStepTitle">New Scan</span>
       <button id="addNext" class="link-btn accent">Next</button>
     </header>
 
@@ -153,12 +198,12 @@
       <div class="capture-box" id="captureBox">
         <img id="capturePreview" hidden>
         <div id="captureHint">
-          <div class="capture-icon">📷</div>
+          <div class="capture-icon">◎</div>
           <p>Take or choose a photo of the can/bottle, upright and centered</p>
         </div>
       </div>
       <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
-      <button id="takePhotoBtn" class="btn-primary wide">Take Photo</button>
+      <button id="takePhotoBtn" class="btn-primary wide">▸ Take Photo</button>
       <button id="choosePhotoBtn" class="btn-ghost wide">Choose from Library</button>
     </div>
 
@@ -212,6 +257,7 @@
           <button type="button" class="chip" data-style="Fruit Beer">Fruit Beer</button>
           <button type="button" class="chip" data-style="Cider">Cider</button>
         </div>
+
         <div id="postTryFields">
           <label>Rating
             <div id="fRating" class="star-picker" data-value="0">
@@ -220,7 +266,7 @@
           </label>
           <div class="price-row">
             <label style="flex:1;">Price
-              <input id="fPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+              <input id="fPrice" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="0.00">
             </label>
             <label style="width:110px;">Currency
               <select id="fCurrency">
@@ -237,7 +283,7 @@
         </div>
         <div class="price-row">
           <label style="width:110px;">ABV %
-            <input id="fAbv" type="number" inputmode="decimal" step="0.1" min="0" placeholder="e.g. 5.0">
+            <input id="fAbv" type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" placeholder="e.g. 5.0">
           </label>
           <label style="flex:1;">Serving
             <input id="fServing" type="text" placeholder="e.g. 330ml can">
@@ -274,7 +320,7 @@
   <section id="detailModal" class="overlay">
     <header class="flow-header">
       <button id="detailClose" class="link-btn">Close</button>
-      <span>Beer Details</span>
+      <span>Scan Report</span>
       <button id="detailEdit" class="link-btn accent">Edit</button>
     </header>
     <div class="details-form" id="detailView"></div>
