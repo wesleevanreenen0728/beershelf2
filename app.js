@@ -67,6 +67,7 @@ let rotationDeg = 0;
 let croppedDataUrl = null;
 let venuePhotoDataUrl = null;
 let collectionSegment = 'owned';
+let customBadges = [];
 
 const PLACEHOLDER_IMG = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160" viewBox="0 0 120 160">' +
@@ -111,6 +112,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   beers = await idbAll('beers');
   const settingsRows = await idbAll('settings');
   settingsRows.forEach(r => settings[r.key] = r.value);
+  customBadges = Array.isArray(settings.customBadges) ? settings.customBadges : [];
 
   applyBackground();
   renderShelf();
@@ -122,6 +124,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   bindDetailModal();
   bindSettings();
   bindBadgesLink();
+  bindBadgePopup();
+  bindCustomBadgeForm();
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js').catch(() => {});
@@ -418,14 +422,29 @@ const BADGES = [
   { id: 'year_round', icon: '🔄', name: 'Year Round', desc: '12 different months', check: c => c.monthCount >= 12 }
 ];
 
+function isBadgeUnlocked(badge, ctx) {
+  return badge.custom ? !!badge.unlocked : badge.check(ctx);
+}
+function allBadgesForDisplay() {
+  return [...BADGES, ...customBadges];
+}
+function findBadgeById(id) {
+  return allBadgesForDisplay().find(b => b.id === id);
+}
+async function persistCustomBadges() {
+  settings.customBadges = customBadges;
+  await idbPut('settings', { key: 'customBadges', value: customBadges });
+}
+
 function renderBadgeHexes(container, badges, ctx, staggerMs) {
   container.innerHTML = '';
   badges.forEach(b => {
-    const unlocked = b.check(ctx);
+    const unlocked = isBadgeUnlocked(b, ctx);
     const hex = document.createElement('div');
     hex.className = 'hex' + (unlocked ? '' : ' locked');
+    hex.dataset.badgeId = b.id;
     hex.innerHTML = `<div class="h">${b.icon}</div><span class="l">${escapeHtml(b.name)}</span>`;
-    hex.title = b.desc;
+    hex.addEventListener('click', () => openBadgePopup(b.id));
     container.appendChild(hex);
   });
   requestAnimationFrame(() => {
@@ -436,10 +455,96 @@ function renderBadgeHexes(container, badges, ctx, staggerMs) {
 }
 function renderBadgesFull() {
   const ctx = computeBadgeContext();
-  const unlockedCount = BADGES.filter(b => b.check(ctx)).length;
+  const all = allBadgesForDisplay();
+  const unlockedCount = all.filter(b => isBadgeUnlocked(b, ctx)).length;
   document.getElementById('badgesSummary').innerHTML =
-    `<b>${unlockedCount} / ${BADGES.length}</b> achievement modules unlocked`;
-  renderBadgeHexes(document.getElementById('badgesFullGrid'), BADGES, ctx, 25);
+    `<b>${unlockedCount} / ${all.length}</b> achievement modules unlocked`;
+  renderBadgeHexes(document.getElementById('badgesFullGrid'), all, ctx, 25);
+}
+
+/* ---- badge info popup ---- */
+function bindBadgePopup() {
+  const overlay = document.getElementById('badgePopup');
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeBadgePopup(); });
+}
+function closeBadgePopup() {
+  document.getElementById('badgePopup').classList.remove('active');
+}
+function openBadgePopup(badgeId) {
+  const badge = findBadgeById(badgeId);
+  if (!badge) return;
+  const ctx = computeBadgeContext();
+  const unlocked = isBadgeUnlocked(badge, ctx);
+
+  const card = document.getElementById('badgePopupCard');
+  card.innerHTML = `
+    <div class="popup-hex${unlocked ? '' : ' locked'}">${badge.icon}</div>
+    <div class="popup-name">${escapeHtml(badge.name)}</div>
+    <div class="popup-status ${unlocked ? 'unlocked' : 'locked'}">${unlocked ? '✓ UNLOCKED' : '🔒 LOCKED'}</div>
+    <div class="popup-desc">${escapeHtml(badge.desc)}</div>
+    <div class="popup-actions" id="popupActions"></div>
+  `;
+  const actions = document.getElementById('popupActions');
+
+  if (badge.custom) {
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn-secondary wide';
+    toggleBtn.textContent = unlocked ? 'Mark as Locked' : 'Mark as Unlocked';
+    toggleBtn.addEventListener('click', async () => {
+      badge.unlocked = !badge.unlocked;
+      await persistCustomBadges();
+      closeBadgePopup();
+      renderBadgesFull(); renderStats();
+    });
+    actions.appendChild(toggleBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-danger wide';
+    delBtn.textContent = 'Delete Badge';
+    delBtn.addEventListener('click', async () => {
+      if (!confirm('Delete this custom badge?')) return;
+      customBadges = customBadges.filter(x => x.id !== badge.id);
+      await persistCustomBadges();
+      closeBadgePopup();
+      renderBadgesFull(); renderStats();
+    });
+    actions.appendChild(delBtn);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn-ghost wide';
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', closeBadgePopup);
+  actions.appendChild(closeBtn);
+
+  document.getElementById('badgePopup').classList.add('active');
+}
+
+/* ---- create custom badge ---- */
+function bindCustomBadgeForm() {
+  document.getElementById('createBadgeBtn').addEventListener('click', () => {
+    document.getElementById('cbIcon').value = '';
+    document.getElementById('cbName').value = '';
+    document.getElementById('cbDesc').value = '';
+    document.getElementById('customBadgeForm').classList.add('active');
+  });
+  document.getElementById('customBadgeCancel').addEventListener('click', () => {
+    document.getElementById('customBadgeForm').classList.remove('active');
+  });
+  document.getElementById('customBadgeSave').addEventListener('click', async () => {
+    const icon = document.getElementById('cbIcon').value.trim() || '🏆';
+    const name = document.getElementById('cbName').value.trim();
+    const desc = document.getElementById('cbDesc').value.trim();
+    if (!name) { alert('Give your badge a name first.'); return; }
+    customBadges.push({
+      id: 'custom_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      icon, name, desc: desc || 'Custom badge — self-tracked.',
+      unlocked: false, custom: true
+    });
+    await persistCustomBadges();
+    document.getElementById('customBadgeForm').classList.remove('active');
+    renderBadgesFull(); renderStats();
+  });
 }
 
 /* ---------------- stats ---------------- */
@@ -476,8 +581,9 @@ function renderStats() {
   const avgAbv = abvValues.length ? (abvValues.reduce((s, v) => s + v, 0) / abvValues.length).toFixed(1) : null;
 
   const ctx = computeBadgeContext();
-  const unlockedCount = BADGES.filter(b => b.check(ctx)).length;
-  const previewBadges = [...BADGES].sort((a, b) => (b.check(ctx) ? 1 : 0) - (a.check(ctx) ? 1 : 0)).slice(0, 4);
+  const allBadges = allBadgesForDisplay();
+  const unlockedCount = allBadges.filter(b => isBadgeUnlocked(b, ctx)).length;
+  const previewBadges = [...allBadges].sort((a, b) => (isBadgeUnlocked(b, ctx) ? 1 : 0) - (isBadgeUnlocked(a, ctx) ? 1 : 0)).slice(0, 4);
 
   el.innerHTML = `
     <div class="stat-grid">
@@ -504,7 +610,7 @@ function renderStats() {
       `).join('')}
     </div>
     <div class="stat-card">
-      <div class="stat-label" style="margin-bottom:8px;">${unlockedCount} / ${BADGES.length} Badges Unlocked</div>
+      <div class="stat-label" style="margin-bottom:8px;">${unlockedCount} / ${allBadges.length} Badges Unlocked</div>
       <div class="hex-row-full" id="statsBadgePreview" style="padding:0;"></div>
     </div>
   `;

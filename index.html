@@ -116,6 +116,37 @@
     </header>
     <div id="badgesSummary" class="badges-summary"></div>
     <div id="badgesFullGrid" class="hex-row-full"></div>
+    <div class="custom-badge-row">
+      <button id="createBadgeBtn" class="btn-secondary wide">✦ Create Your Own Badge</button>
+    </div>
+  </section>
+
+  <!-- ============ BADGE INFO POPUP ============ -->
+  <div id="badgePopup" class="popup-overlay">
+    <div class="popup-card" id="badgePopupCard"></div>
+  </div>
+
+  <!-- ============ CREATE CUSTOM BADGE ============ -->
+  <section id="customBadgeForm" class="overlay">
+    <header class="flow-header">
+      <button id="customBadgeCancel" class="link-btn">Cancel</button>
+      <span>New Badge</span>
+      <button id="customBadgeSave" class="link-btn accent">Save</button>
+    </header>
+    <div class="details-form" style="padding:18px;">
+      <label>Icon <span class="opt-tag">any emoji</span>
+        <input id="cbIcon" type="text" maxlength="4" placeholder="🏆" style="font-size:22px;text-align:center;">
+      </label>
+      <label>Badge Name
+        <input id="cbName" type="text" placeholder="e.g. Festival Finisher">
+      </label>
+      <label>What does it take to unlock it?
+        <textarea id="cbDesc" rows="3" placeholder="e.g. Try a beer at a music festival"></textarea>
+      </label>
+      <p class="opt-tag" style="text-transform:none;font-size:11px;line-height:1.5;">
+        Custom badges are self-tracked — you'll mark them unlocked yourself from the badge popup, since there's no automatic way to check them.
+      </p>
+    </div>
   </section>
 
   <!-- ============ SETTINGS VIEW ============ -->
