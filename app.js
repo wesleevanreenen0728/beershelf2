@@ -662,6 +662,29 @@ function applyBackground() {
 function bindSettings() {
   document.getElementById('aboutVersion').textContent = `BrewOS ${APP_VERSION} — a personal, offline-first beer collection app.`;
 
+  const checkUpdateBtn = document.getElementById('checkUpdateBtn');
+  const checkUpdateStatus = document.getElementById('checkUpdateStatus');
+  checkUpdateBtn.addEventListener('click', async () => {
+    if (!('serviceWorker' in navigator)) {
+      checkUpdateStatus.textContent = 'Not supported in this browser.';
+      return;
+    }
+    checkUpdateStatus.textContent = 'Checking…';
+    checkUpdateBtn.disabled = true;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+      // Give the browser a moment to detect/install any new version, then
+      // reload either way — a plain reload also re-fetches the app shell
+      // fresh, thanks to the network-first strategy, even if no SW update
+      // was pending. Your beer data is completely unaffected by this.
+      setTimeout(() => window.location.reload(), 600);
+    } catch (err) {
+      checkUpdateStatus.textContent = 'Could not check — try again when online.';
+      checkUpdateBtn.disabled = false;
+    }
+  });
+
   const displayNameInput = document.getElementById('fDisplayName');
   displayNameInput.value = settings.displayName || '';
   displayNameInput.addEventListener('change', async () => {
