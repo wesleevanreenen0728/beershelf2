@@ -68,6 +68,17 @@ let croppedDataUrl = null;
 let venuePhotoDataUrl = null;
 let collectionSegment = 'owned';
 let customBadges = [];
+const APP_VERSION = 'v2.2 — Aug 2026';
+
+function showUpdateToast() {
+  if (document.getElementById('updateToast')) return; // already showing
+  const toast = document.createElement('div');
+  toast.id = 'updateToast';
+  toast.className = 'update-toast';
+  toast.innerHTML = `<span>⟲ A new version is ready</span><button id="updateReloadBtn">Refresh</button>`;
+  document.body.appendChild(toast);
+  document.getElementById('updateReloadBtn').addEventListener('click', () => window.location.reload());
+}
 
 const PLACEHOLDER_IMG = 'data:image/svg+xml,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160" viewBox="0 0 120 160">' +
@@ -128,7 +139,19 @@ window.addEventListener('DOMContentLoaded', async () => {
   bindCustomBadgeForm();
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('service-worker.js').then(reg => {
+      reg.addEventListener('updatefound', () => {
+        const newWorker = reg.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          // Only show the toast for an update to an already-running app —
+          // not on the very first install, where there's nothing to "update" yet.
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            showUpdateToast();
+          }
+        });
+      });
+    }).catch(() => {});
   }
 });
 
@@ -637,6 +660,8 @@ function applyBackground() {
   }
 }
 function bindSettings() {
+  document.getElementById('aboutVersion').textContent = `BrewOS ${APP_VERSION} — a personal, offline-first beer collection app.`;
+
   const displayNameInput = document.getElementById('fDisplayName');
   displayNameInput.value = settings.displayName || '';
   displayNameInput.addEventListener('change', async () => {
