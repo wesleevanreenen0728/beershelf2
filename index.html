@@ -65,10 +65,14 @@
       <div class="hud-tag"><span class="pulse-dot"></span> SYSTEM ONLINE</div>
       <div class="hud-title">BREW//OS</div>
       <div class="hud-sub">INVENTORY: <b id="hudCount">0</b> UNITS TRACKED</div>
+      <div class="hud-greeting" id="hudGreeting"></div>
     </header>
 
     <div class="shelf-toolbar">
       <input id="shelfSearch" type="search" placeholder="◎ QUERY INVENTORY...">
+    </div>
+    <div class="surprise-row">
+      <button id="surpriseMeBtn" class="btn-ghost wide">🎲 Surprise Me — What Should I Drink?</button>
     </div>
 
     <div id="shelfGrid" class="inv-grid"></div>
@@ -104,8 +108,47 @@
     <header class="page-header"><h2>System Stats</h2></header>
     <div id="statsContent" class="stats-content"></div>
     <div class="badges-link-row">
+      <button id="viewWorldBtn" class="btn-secondary wide">🌍 World Map & Country Cards</button>
+      <button id="viewYearBtn" class="btn-secondary wide">✦ Year in Beer</button>
       <button id="viewBadgesBtn" class="btn-secondary wide">▸ View All Badges</button>
     </div>
+  </section>
+
+  <!-- ============ WORLD MAP & CARDS VIEW ============ -->
+  <section id="view-world" class="view">
+    <header class="page-header with-back">
+      <button class="link-btn" data-nav="stats">← Back</button>
+      <h2>World Map</h2>
+    </header>
+    <div class="segmented" id="worldSegment">
+      <button type="button" class="seg-btn active" data-seg="map">Map</button>
+      <button type="button" class="seg-btn" data-seg="cards">Country Cards</button>
+    </div>
+    <div id="worldMapWrap" class="world-map-wrap">
+      <div id="worldMapSvgHolder" class="world-map-svg-holder"></div>
+      <p id="worldMapFallbackNote" class="opt-tag" style="text-transform:none;font-size:11px;padding:0 20px;" hidden>
+        Couldn't load the live map graphic (needs an internet connection the first time) — showing your countries as a list instead.
+      </p>
+      <div id="worldMapList" class="world-map-list" hidden></div>
+    </div>
+    <div id="worldCardsWrap" class="world-cards-wrap" hidden>
+      <div id="worldCardsSummary" class="badges-summary"></div>
+      <div id="worldCardsGrid" class="card-wallet-grid"></div>
+    </div>
+  </section>
+
+  <!-- ============ COUNTRY CARD POPUP ============ -->
+  <div id="countryPopup" class="popup-overlay">
+    <div class="popup-card" id="countryPopupCard"></div>
+  </div>
+
+  <!-- ============ YEAR IN BEER VIEW ============ -->
+  <section id="view-year" class="view">
+    <header class="page-header with-back">
+      <button class="link-btn" data-nav="stats">← Back</button>
+      <h2>Year in Beer</h2>
+    </header>
+    <div id="yearContent" class="stats-content"></div>
   </section>
 
   <!-- ============ BADGES VIEW ============ -->
@@ -273,24 +316,14 @@
         <label>Name
           <input id="fName" type="text" placeholder="e.g. Guinness Draught">
         </label>
+        <div id="duplicateWarning" class="wishlist-badge" style="text-align:left;" hidden></div>
         <label>Brewery
           <input id="fBrewery" type="text" placeholder="e.g. Guinness">
         </label>
         <label>Style
           <input id="fStyle" type="text" placeholder="e.g. Irish Dry Stout">
         </label>
-        <div class="chip-row" id="styleChips">
-          <button type="button" class="chip" data-style="IPA">IPA</button>
-          <button type="button" class="chip" data-style="Stout">Stout</button>
-          <button type="button" class="chip" data-style="Lager">Lager</button>
-          <button type="button" class="chip" data-style="Pilsner">Pilsner</button>
-          <button type="button" class="chip" data-style="Wheat Beer">Wheat Beer</button>
-          <button type="button" class="chip" data-style="Pale Ale">Pale Ale</button>
-          <button type="button" class="chip" data-style="Sour">Sour</button>
-          <button type="button" class="chip" data-style="Porter">Porter</button>
-          <button type="button" class="chip" data-style="Fruit Beer">Fruit Beer</button>
-          <button type="button" class="chip" data-style="Cider">Cider</button>
-        </div>
+        <div class="chip-row" id="styleChips"></div>
 
         <div id="postTryFields">
           <label>Rating
@@ -325,6 +358,11 @@
         </div>
         <label>Location
           <input id="fLocation" type="text" placeholder="e.g. Dublin, Ireland">
+        </label>
+        <label>Country <span class="opt-tag">for your world map & cards</span>
+          <select id="fCountry">
+            <option value="">— Not set —</option>
+          </select>
         </label>
         <div id="postTryFields2">
           <label>Date

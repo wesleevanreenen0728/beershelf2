@@ -68,7 +68,66 @@ let croppedDataUrl = null;
 let venuePhotoDataUrl = null;
 let collectionSegment = 'owned';
 let customBadges = [];
-const APP_VERSION = 'v2.2 — Aug 2026';
+let customStyleTags = [];
+
+const DEFAULT_STYLE_TAGS = ['IPA', 'Stout', 'Lager', 'Pilsner', 'Wheat Beer', 'Pale Ale', 'Sour', 'Porter', 'Fruit Beer', 'Cider'];
+
+// Standard ISO 3166-1 country list (code + common name), used for the
+// Country field, flag emoji generation, the world map, and country cards.
+const COUNTRIES = [
+  ['af','Afghanistan'],['al','Albania'],['dz','Algeria'],['ar','Argentina'],['am','Armenia'],
+  ['au','Australia'],['at','Austria'],['az','Azerbaijan'],['bh','Bahrain'],['bd','Bangladesh'],
+  ['by','Belarus'],['be','Belgium'],['bz','Belize'],['bo','Bolivia'],['ba','Bosnia and Herzegovina'],
+  ['br','Brazil'],['bg','Bulgaria'],['kh','Cambodia'],['cm','Cameroon'],['ca','Canada'],
+  ['cl','Chile'],['cn','China'],['co','Colombia'],['cr','Costa Rica'],['hr','Croatia'],
+  ['cu','Cuba'],['cy','Cyprus'],['cz','Czechia'],['dk','Denmark'],['do','Dominican Republic'],
+  ['ec','Ecuador'],['eg','Egypt'],['ee','Estonia'],['et','Ethiopia'],['fi','Finland'],
+  ['fr','France'],['ge','Georgia'],['de','Germany'],['gh','Ghana'],['gr','Greece'],
+  ['gt','Guatemala'],['hn','Honduras'],['hk','Hong Kong'],['hu','Hungary'],['is','Iceland'],
+  ['in','India'],['id','Indonesia'],['ie','Ireland'],['il','Israel'],['it','Italy'],
+  ['jm','Jamaica'],['jp','Japan'],['jo','Jordan'],['kz','Kazakhstan'],['ke','Kenya'],
+  ['kw','Kuwait'],['lv','Latvia'],['lb','Lebanon'],['lt','Lithuania'],['lu','Luxembourg'],
+  ['mo','Macao'],['my','Malaysia'],['mt','Malta'],['mx','Mexico'],['md','Moldova'],
+  ['mc','Monaco'],['mn','Mongolia'],['me','Montenegro'],['ma','Morocco'],['mm','Myanmar'],
+  ['np','Nepal'],['nl','Netherlands'],['nz','New Zealand'],['ni','Nicaragua'],['ng','Nigeria'],
+  ['no','Norway'],['om','Oman'],['pk','Pakistan'],['pa','Panama'],['py','Paraguay'],
+  ['pe','Peru'],['ph','Philippines'],['pl','Poland'],['pt','Portugal'],['pr','Puerto Rico'],
+  ['qa','Qatar'],['ro','Romania'],['ru','Russia'],['rw','Rwanda'],['sa','Saudi Arabia'],
+  ['rs','Serbia'],['sg','Singapore'],['sk','Slovakia'],['si','Slovenia'],['za','South Africa'],
+  ['kr','South Korea'],['es','Spain'],['lk','Sri Lanka'],['se','Sweden'],['ch','Switzerland'],
+  ['tw','Taiwan'],['tz','Tanzania'],['th','Thailand'],['tn','Tunisia'],['tr','Turkey'],
+  ['ua','Ukraine'],['ae','United Arab Emirates'],['gb','United Kingdom'],['us','United States'],
+  ['uy','Uruguay'],['uz','Uzbekistan'],['ve','Venezuela'],['vn','Vietnam'],['zm','Zambia'],['zw','Zimbabwe']
+];
+function flagEmoji(code) {
+  if (!code || code.length !== 2) return '🏳️';
+  return String.fromCodePoint(...code.toUpperCase().split('').map(c => 127397 + c.charCodeAt(0)));
+}
+function countryName(code) {
+  const found = COUNTRIES.find(c => c[0] === code);
+  return found ? found[1] : code;
+}
+
+const GREETINGS = [
+  n => `It's about time, ${n} — what are we sampling today?`,
+  n => `Well look who it is. Evening, ${n}. Cellar's this way.`,
+  n => `${n}! System's been waiting. What's on tap tonight?`,
+  n => `Back again, ${n}? Your liver appreciates the dedication.`,
+  n => `Welcome back, ${n} — the shelf missed you.`,
+  n => `Ah, ${n}. Right on schedule. Let's log something good.`,
+  n => `${n} has entered the cellar. Proceed with caution (and beer).`,
+  n => `Cheers, ${n} — ready to add to the collection?`,
+  n => `Hey ${n}, the fridge called. It's feeling empty.`,
+  n => `${n}, reporting for duty. What's the mission — IPA or lager?`
+];
+const GREETINGS_NO_NAME = [
+  'Well, look who\'s back — what are we sampling today?',
+  'System online. Ready when you are.',
+  'Back for more? The shelf missed you.',
+  'Cheers — ready to log something good?',
+  'Set your name in Settings for a personal greeting next time.'
+];
+const APP_VERSION = 'v2.3 — Aug 2026';
 
 function showUpdateToast() {
   if (document.getElementById('updateToast')) return; // already showing
@@ -124,7 +183,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   const settingsRows = await idbAll('settings');
   settingsRows.forEach(r => settings[r.key] = r.value);
   customBadges = Array.isArray(settings.customBadges) ? settings.customBadges : [];
+  customStyleTags = Array.isArray(settings.customStyleTags) ? settings.customStyleTags : [];
 
+  populateCountrySelect();
+  renderGreeting();
   applyBackground();
   renderShelf();
   renderCollection();
@@ -137,6 +199,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   bindBadgesLink();
   bindBadgePopup();
   bindCustomBadgeForm();
+  bindWorldViews();
+  bindYearInBeer();
+  bindSurpriseMe();
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js').then(reg => {
@@ -217,12 +282,17 @@ function goToView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + name).classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.nav === name));
+  if (name === 'shelf') renderGreeting();
   if (name === 'collection') renderCollection();
   if (name === 'stats') renderStats();
   if (name === 'badges') renderBadgesFull();
+  if (name === 'world') renderWorldActiveTab();
+  if (name === 'year') renderYearInBeer();
 }
 function bindBadgesLink() {
   document.getElementById('viewBadgesBtn').addEventListener('click', () => goToView('badges'));
+  document.getElementById('viewWorldBtn').addEventListener('click', () => goToView('world'));
+  document.getElementById('viewYearBtn').addEventListener('click', () => goToView('year'));
 }
 
 /* ---------------- shelf ---------------- */
@@ -485,6 +555,158 @@ function renderBadgesFull() {
   renderBadgeHexes(document.getElementById('badgesFullGrid'), all, ctx, 25);
 }
 
+/* ============================================================
+   WORLD MAP & COUNTRY CARDS
+   ============================================================ */
+let worldTab = 'map';
+let worldMapLoaded = false;
+
+function visitedCountryCodes() {
+  const owned = beers.filter(b => !b.wishlist && b.country);
+  return [...new Set(owned.map(b => b.country))];
+}
+function beersForCountry(code) {
+  return beers.filter(b => !b.wishlist && b.country === code);
+}
+
+function bindWorldViews() {
+  const segWrap = document.getElementById('worldSegment');
+  segWrap.querySelectorAll('.seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      worldTab = btn.dataset.seg;
+      segWrap.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.getElementById('worldMapWrap').hidden = worldTab !== 'map';
+      document.getElementById('worldCardsWrap').hidden = worldTab !== 'cards';
+      renderWorldActiveTab();
+    });
+  });
+  const popup = document.getElementById('countryPopup');
+  popup.addEventListener('click', (e) => { if (e.target === popup) closeCountryPopup(); });
+}
+function renderWorldActiveTab() {
+  if (worldTab === 'map') renderWorldMap();
+  else renderWorldCards();
+}
+
+async function renderWorldMap() {
+  const visited = visitedCountryCodes();
+  const holder = document.getElementById('worldMapSvgHolder');
+  const listEl = document.getElementById('worldMapList');
+  const fallbackNote = document.getElementById('worldMapFallbackNote');
+
+  if (visited.length === 0 && !worldMapLoaded) {
+    holder.innerHTML = `<p style="text-align:center;color:var(--text-dim);font-size:12px;padding:30px;">Add a beer with a Country set to start filling in your map.</p>`;
+    return;
+  }
+
+  if (!worldMapLoaded) {
+    try {
+      // Free, open-source world map (ISO 3166-1 alpha-2 IDs on each path),
+      // fetched at runtime — not bundled, so it needs internet the first time.
+      const resp = await fetch('https://cdn.jsdelivr.net/gh/flekschas/simple-world-map@master/world-map.svg');
+      if (!resp.ok) throw new Error('map fetch failed');
+      const svgText = await resp.text();
+      holder.innerHTML = svgText;
+      const svg = holder.querySelector('svg');
+      if (!svg) throw new Error('no svg in response');
+      svg.removeAttribute('width');
+      svg.removeAttribute('height');
+      worldMapLoaded = true;
+    } catch (err) {
+      holder.innerHTML = '';
+      fallbackNote.hidden = false;
+      listEl.hidden = false;
+      renderWorldMapListFallback();
+      return;
+    }
+  }
+
+  fallbackNote.hidden = true;
+  listEl.hidden = true;
+  paintWorldMap();
+}
+function paintWorldMap() {
+  const visited = new Set(visitedCountryCodes());
+  const holder = document.getElementById('worldMapSvgHolder');
+  const svg = holder.querySelector('svg');
+  if (!svg) return;
+  svg.querySelectorAll('path[id]').forEach(path => {
+    const code = path.id.toLowerCase();
+    const isVisited = visited.has(code);
+    path.classList.toggle('visited', isVisited);
+    if (isVisited && !path.dataset.bound) {
+      path.dataset.bound = '1';
+      path.addEventListener('click', () => openCountryPopup(code));
+    }
+  });
+}
+function renderWorldMapListFallback() {
+  const visited = new Set(visitedCountryCodes());
+  const listEl = document.getElementById('worldMapList');
+  const sorted = [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1]));
+  listEl.innerHTML = sorted.map(([code, name]) => {
+    const isVisited = visited.has(code);
+    return `<button type="button" class="chip${isVisited ? ' visited' : ''}" data-code="${code}">${flagEmoji(code)} ${escapeHtml(name)}</button>`;
+  }).join('');
+  listEl.querySelectorAll('.chip.visited').forEach(chip => {
+    chip.addEventListener('click', () => openCountryPopup(chip.dataset.code));
+  });
+}
+
+function renderWorldCards() {
+  const visited = visitedCountryCodes();
+  document.getElementById('worldCardsSummary').innerHTML =
+    `<b>${visited.length}</b> ${visited.length === 1 ? 'country' : 'countries'} collected`;
+  const grid = document.getElementById('worldCardsGrid');
+  const visitedSet = new Set(visited);
+  const sorted = [...COUNTRIES].sort((a, b) => {
+    const av = visitedSet.has(a[0]) ? 0 : 1, bv = visitedSet.has(b[0]) ? 0 : 1;
+    if (av !== bv) return av - bv;
+    return a[1].localeCompare(b[1]);
+  });
+  grid.innerHTML = '';
+  sorted.forEach(([code, name]) => {
+    const isVisited = visitedSet.has(code);
+    const count = isVisited ? beersForCountry(code).length : 0;
+    const card = document.createElement('div');
+    card.className = 'country-card' + (isVisited ? '' : ' locked');
+    card.innerHTML = `
+      <div class="flag">${isVisited ? flagEmoji(code) : '❔'}</div>
+      <div class="cname">${isVisited ? escapeHtml(name) : '???'}</div>
+      ${isVisited ? `<div class="ccount">${count} beer${count === 1 ? '' : 's'}</div>` : ''}
+    `;
+    if (isVisited) card.addEventListener('click', () => openCountryPopup(code));
+    grid.appendChild(card);
+  });
+  requestAnimationFrame(() => {
+    grid.querySelectorAll('.country-card').forEach((c, i) => {
+      setTimeout(() => c.classList.add('in'), Math.min(i * 12, 400));
+    });
+  });
+}
+
+function closeCountryPopup() {
+  document.getElementById('countryPopup').classList.remove('active');
+}
+function openCountryPopup(code) {
+  const list = beersForCountry(code);
+  if (list.length === 0) return;
+  const card = document.getElementById('countryPopupCard');
+  const avgRating = (list.reduce((s, b) => s + (Number(b.rating) || 0), 0) / list.length).toFixed(1);
+  card.innerHTML = `
+    <div class="popup-country-flag">${flagEmoji(code)}</div>
+    <div class="popup-name">${escapeHtml(countryName(code))}</div>
+    <div class="popup-status unlocked">✓ ${list.length} BEER${list.length === 1 ? '' : 'S'} · AVG ${avgRating}★</div>
+    <div class="popup-desc" style="text-align:left;">
+      ${list.slice(0, 6).map(b => `<div class="dv-row"><span class="dv-k" style="text-transform:none;font-size:12px;">${escapeHtml(b.name)}</span><span style="color:var(--amber);">${starString(b.rating)}</span></div>`).join('')}
+      ${list.length > 6 ? `<div style="text-align:center;font-size:11px;margin-top:6px;color:var(--text-dim);">+${list.length - 6} more</div>` : ''}
+    </div>
+    <div class="popup-actions"><button class="btn-ghost wide" id="countryPopupClose">Close</button></div>
+  `;
+  document.getElementById('countryPopupClose').addEventListener('click', closeCountryPopup);
+  document.getElementById('countryPopup').classList.add('active');
+}
+
 /* ---- badge info popup ---- */
 function bindBadgePopup() {
   const overlay = document.getElementById('badgePopup');
@@ -603,6 +825,49 @@ function renderStats() {
   const abvValues = owned.map(b => Number(b.abv)).filter(v => !isNaN(v) && v > 0);
   const avgAbv = abvValues.length ? (abvValues.reduce((s, v) => s + v, 0) / abvValues.length).toFixed(1) : null;
 
+  // Top breweries leaderboard
+  const breweryCounts = {};
+  owned.forEach(b => { const br = (b.brewery || '').trim(); if (br) breweryCounts[br] = (breweryCounts[br] || 0) + 1; });
+  const topBreweries = Object.entries(breweryCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const maxBreweryCount = Math.max(...topBreweries.map(e => e[1]), 1);
+
+  // Rating distribution
+  const ratingDist = [0, 0, 0, 0, 0, 0]; // index 0 unused, 1-5 stars
+  owned.forEach(b => { const r = Math.round(Number(b.rating) || 0); if (r >= 1 && r <= 5) ratingDist[r]++; });
+  const maxRatingCount = Math.max(...ratingDist.slice(1), 1);
+
+  // ABV spread buckets
+  const abvBuckets = { '<4%': 0, '4–6%': 0, '6–8%': 0, '8%+': 0 };
+  abvValues.forEach(v => {
+    if (v < 4) abvBuckets['<4%']++;
+    else if (v < 6) abvBuckets['4–6%']++;
+    else if (v < 8) abvBuckets['6–8%']++;
+    else abvBuckets['8%+']++;
+  });
+  const maxAbvBucket = Math.max(...Object.values(abvBuckets), 1);
+
+  // Day-of-week pattern
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dayCounts = [0, 0, 0, 0, 0, 0, 0];
+  owned.forEach(b => { if (b.createdAt) dayCounts[new Date(b.createdAt).getDay()]++; });
+  const maxDayCount = Math.max(...dayCounts, 1);
+
+  // Beers per month (last 6 calendar months, oldest to newest)
+  const monthLabels = [];
+  const monthCounts = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = d.getFullYear() + '-' + d.getMonth();
+    monthLabels.push(d.toLocaleDateString(undefined, { month: 'short' }));
+    monthCounts.push(owned.filter(b => {
+      if (!b.createdAt) return false;
+      const bd = new Date(b.createdAt);
+      return (bd.getFullYear() + '-' + bd.getMonth()) === key;
+    }).length);
+  }
+  const maxMonthCount = Math.max(...monthCounts, 1);
+
   const ctx = computeBadgeContext();
   const allBadges = allBadgesForDisplay();
   const unlockedCount = allBadges.filter(b => isBadgeUnlocked(b, ctx)).length;
@@ -633,6 +898,58 @@ function renderStats() {
       `).join('')}
     </div>
     <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:2px;">Beers Logged / Month</div>
+      ${monthLabels.map((label, i) => `
+        <div class="bar-row">
+          <span style="width:36px;flex:none;">${label}</span>
+          <div class="bar-track"><div class="bar-fill" data-w="${(monthCounts[i] / maxMonthCount) * 100}"></div></div>
+          <span style="width:18px;text-align:right;">${monthCounts[i]}</span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:2px;">Rating Distribution</div>
+      ${[5, 4, 3, 2, 1].map(star => `
+        <div class="bar-row">
+          <span style="width:36px;flex:none;">${star}★</span>
+          <div class="bar-track"><div class="bar-fill" data-w="${(ratingDist[star] / maxRatingCount) * 100}"></div></div>
+          <span style="width:18px;text-align:right;">${ratingDist[star]}</span>
+        </div>
+      `).join('')}
+    </div>
+    ${topBreweries.length ? `
+    <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:2px;">Top Breweries</div>
+      ${topBreweries.map(([br, c]) => `
+        <div class="bar-row">
+          <span style="width:100px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(br)}</span>
+          <div class="bar-track"><div class="bar-fill" data-w="${(c / maxBreweryCount) * 100}"></div></div>
+          <span style="width:18px;text-align:right;">${c}</span>
+        </div>
+      `).join('')}
+    </div>` : ''}
+    ${abvValues.length ? `
+    <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:2px;">ABV Spread</div>
+      ${Object.entries(abvBuckets).map(([label, c]) => `
+        <div class="bar-row">
+          <span style="width:60px;flex:none;">${label}</span>
+          <div class="bar-track"><div class="bar-fill" data-w="${(c / maxAbvBucket) * 100}"></div></div>
+          <span style="width:18px;text-align:right;">${c}</span>
+        </div>
+      `).join('')}
+    </div>` : ''}
+    <div class="stat-card">
+      <div class="stat-label" style="margin-bottom:2px;">Day-of-Week Pattern</div>
+      ${dayNames.map((label, i) => `
+        <div class="bar-row">
+          <span style="width:36px;flex:none;">${label}</span>
+          <div class="bar-track"><div class="bar-fill" data-w="${(dayCounts[i] / maxDayCount) * 100}"></div></div>
+          <span style="width:18px;text-align:right;">${dayCounts[i]}</span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="stat-card">
       <div class="stat-label" style="margin-bottom:8px;">${unlockedCount} / ${allBadges.length} Badges Unlocked</div>
       <div class="hex-row-full" id="statsBadgePreview" style="padding:0;"></div>
     </div>
@@ -643,6 +960,62 @@ function renderStats() {
     });
   });
   renderBadgeHexes(document.getElementById('statsBadgePreview'), previewBadges, ctx, 60);
+}
+
+/* ============================================================
+   YEAR IN BEER — shareable summary
+   ============================================================ */
+function bindYearInBeer() {
+  // Nav wiring for #view-year happens via goToView(); nothing else to bind here.
+}
+function renderYearInBeer() {
+  const el = document.getElementById('yearContent');
+  const year = new Date().getFullYear();
+  const owned = beers.filter(b => !b.wishlist && b.createdAt && new Date(b.createdAt).getFullYear() === year);
+  if (owned.length === 0) {
+    el.innerHTML = `<p style="text-align:center;color:var(--text-dim);padding:30px 0;font-size:12px;">No beers logged in ${year} yet — get pouring!</p>`;
+    return;
+  }
+  const styleCounts = {};
+  owned.forEach(b => { const s = (b.style || '').trim() || 'Unspecified'; styleCounts[s] = (styleCounts[s] || 0) + 1; });
+  const topStyle = Object.entries(styleCounts).sort((a, b) => b[1] - a[1])[0];
+
+  const breweryCounts = {};
+  owned.forEach(b => { const br = (b.brewery || '').trim(); if (br) breweryCounts[br] = (breweryCounts[br] || 0) + 1; });
+  const topBrewery = Object.entries(breweryCounts).sort((a, b) => b[1] - a[1])[0];
+
+  const strongest = [...owned].filter(b => !isNaN(Number(b.abv))).sort((a, b) => Number(b.abv) - Number(a.abv))[0];
+  const topRated = [...owned].filter(b => b.rating > 0).sort((a, b) => b.rating - a.rating)[0];
+  const avgRating = (owned.reduce((s, b) => s + (Number(b.rating) || 0), 0) / owned.length).toFixed(1);
+  const countries = new Set(owned.map(b => b.country).filter(Boolean)).size;
+
+  el.innerHTML = `
+    <div class="year-hero">
+      <div class="yh-big">${owned.length}</div>
+      <div class="yh-label">Beers logged in ${year}</div>
+    </div>
+    <div class="stat-card">
+      ${topStyle ? `<div class="year-fact-row"><span class="yf-k">Go-to Style</span><span>${escapeHtml(topStyle[0])} (${topStyle[1]}×)</span></div>` : ''}
+      ${topBrewery ? `<div class="year-fact-row"><span class="yf-k">Favorite Brewery</span><span>${escapeHtml(topBrewery[0])} (${topBrewery[1]}×)</span></div>` : ''}
+      ${topRated ? `<div class="year-fact-row"><span class="yf-k">Top Rated</span><span>${escapeHtml(topRated.name)} · ${starString(topRated.rating)}</span></div>` : ''}
+      ${strongest && strongest.abv ? `<div class="year-fact-row"><span class="yf-k">Strongest Pour</span><span>${escapeHtml(strongest.name)} · ${Number(strongest.abv).toFixed(1)}%</span></div>` : ''}
+      <div class="year-fact-row"><span class="yf-k">Average Rating</span><span>${avgRating} / 5</span></div>
+      ${countries ? `<div class="year-fact-row"><span class="yf-k">Countries Visited</span><span>${countries}</span></div>` : ''}
+    </div>
+    <p style="text-align:center;font-size:11px;color:var(--text-dim);padding:0 20px;">Tip: use "Create Shareable File" in Settings to send your friends the full collection this summary is built from.</p>
+  `;
+}
+
+/* ============================================================
+   SURPRISE ME
+   ============================================================ */
+function bindSurpriseMe() {
+  document.getElementById('surpriseMeBtn').addEventListener('click', () => {
+    const owned = beers.filter(b => !b.wishlist);
+    if (owned.length === 0) { alert('Add a few beers first — nothing to surprise you with yet!'); return; }
+    const pick = owned[Math.floor(Math.random() * owned.length)];
+    openDetail(pick.id);
+  });
 }
 
 /* ---------------- settings ---------------- */
@@ -836,12 +1209,10 @@ function bindAddFlow() {
 
   document.getElementById('changePhotoBtn').addEventListener('click', () => goToAddStepIdx(1));
 
-  document.getElementById('styleChips').addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip');
-    if (!chip) return;
-    document.getElementById('fStyle').value = chip.dataset.style;
-    document.querySelectorAll('#styleChips .chip').forEach(c => c.classList.toggle('active', c === chip));
-  });
+  renderStyleChips();
+
+  const nameInput = document.getElementById('fName');
+  nameInput.addEventListener('input', () => checkDuplicateName(nameInput.value));
 
   const venueFileInput = document.getElementById('venueFileInput');
   document.getElementById('venueAddBtn').addEventListener('click', () => venueFileInput.click());
@@ -876,6 +1247,80 @@ function bindAddFlow() {
   });
 }
 
+function renderStyleChips() {
+  const wrap = document.getElementById('styleChips');
+  const currentStyle = document.getElementById('fStyle').value;
+  const allTags = [...DEFAULT_STYLE_TAGS, ...customStyleTags];
+  wrap.innerHTML = allTags.map(tag =>
+    `<button type="button" class="chip${tag === currentStyle ? ' active' : ''}" data-style="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`
+  ).join('') + `<button type="button" class="chip chip-add" id="addCustomTagBtn">+ Custom</button>`;
+
+  wrap.querySelectorAll('.chip[data-style]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.getElementById('fStyle').value = chip.dataset.style;
+      wrap.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === chip));
+    });
+  });
+  document.getElementById('addCustomTagBtn').addEventListener('click', showCustomTagForm);
+}
+function showCustomTagForm() {
+  const wrap = document.getElementById('styleChips');
+  const addBtn = document.getElementById('addCustomTagBtn');
+  const formRow = document.createElement('div');
+  formRow.className = 'chip-add-form';
+  formRow.innerHTML = `<input type="text" id="newTagInput" placeholder="e.g. Gin Cooler" maxlength="24"><button type="button" class="btn-secondary" id="newTagSave">Add</button>`;
+  addBtn.replaceWith(formRow);
+  const input = document.getElementById('newTagInput');
+  input.focus();
+  document.getElementById('newTagSave').addEventListener('click', async () => {
+    const val = input.value.trim();
+    if (!val) return;
+    const exists = [...DEFAULT_STYLE_TAGS, ...customStyleTags].some(t => t.toLowerCase() === val.toLowerCase());
+    if (!exists) {
+      customStyleTags.push(val);
+      settings.customStyleTags = customStyleTags;
+      await idbPut('settings', { key: 'customStyleTags', value: customStyleTags });
+    }
+    document.getElementById('fStyle').value = val;
+    renderStyleChips();
+  });
+}
+
+function checkDuplicateName(name) {
+  const warning = document.getElementById('duplicateWarning');
+  const trimmed = name.trim().toLowerCase();
+  if (trimmed.length < 3) { warning.hidden = true; return; }
+  const match = beers.find(b => b.id !== editingId && !b.wishlist && (b.name || '').trim().toLowerCase() === trimmed);
+  if (match) {
+    warning.hidden = false;
+    warning.textContent = `📋 You already have "${match.name}" on your shelf${match.rating ? ` (rated ${match.rating}/5)` : ''} — adding anyway is totally fine, just flagging it.`;
+  } else {
+    warning.hidden = true;
+  }
+}
+
+function populateCountrySelect() {
+  const select = document.getElementById('fCountry');
+  const sorted = [...COUNTRIES].sort((a, b) => a[1].localeCompare(b[1]));
+  sorted.forEach(([code, name]) => {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = `${flagEmoji(code)} ${name}`;
+    select.appendChild(opt);
+  });
+}
+
+function renderGreeting() {
+  const el = document.getElementById('hudGreeting');
+  const name = (settings.displayName || '').trim();
+  if (name) {
+    const pick = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
+    el.textContent = pick(name);
+  } else {
+    el.textContent = GREETINGS_NO_NAME[Math.floor(Math.random() * GREETINGS_NO_NAME.length)];
+  }
+}
+
 function openAddFlow(existingBeer, forceConvert) {
   editingId = existingBeer ? existingBeer.id : null;
   rawPhotoDataUrl = existingBeer ? existingBeer.image : null;
@@ -886,6 +1331,7 @@ function openAddFlow(existingBeer, forceConvert) {
   document.getElementById('fBrewery').value = existingBeer?.brewery || '';
   document.getElementById('fStyle').value = existingBeer?.style || '';
   document.getElementById('fLocation').value = existingBeer?.location || '';
+  document.getElementById('fCountry').value = existingBeer?.country || '';
   document.getElementById('fDate').value = existingBeer?.date || new Date().toISOString().slice(0, 10);
   document.getElementById('fNotes').value = existingBeer?.notes || '';
   document.getElementById('fPrice').value = (existingBeer?.priceAmount != null) ? existingBeer.priceAmount : '';
@@ -897,9 +1343,8 @@ function openAddFlow(existingBeer, forceConvert) {
   togglePostTryFields(isWishlist);
   document.getElementById('fRating').dataset.value = existingBeer?.rating || 0;
   updateStarPicker();
-  document.querySelectorAll('#styleChips .chip').forEach(c =>
-    c.classList.toggle('active', c.dataset.style === (existingBeer?.style || ''))
-  );
+  document.getElementById('duplicateWarning').hidden = true;
+  renderStyleChips();
 
   venuePhotoDataUrl = existingBeer?.venueImage || null;
   if (venuePhotoDataUrl) {
@@ -1173,6 +1618,7 @@ async function saveBeer() {
     serving: document.getElementById('fServing').value.trim(),
     wishlist: isWishlist,
     location: document.getElementById('fLocation').value.trim(),
+    country: document.getElementById('fCountry').value || '',
     date: isWishlist ? '' : document.getElementById('fDate').value,
     notes: document.getElementById('fNotes').value.trim(),
     createdAt: editingId ? (beers.find(b => b.id === editingId)?.createdAt || Date.now()) : Date.now()
@@ -1243,6 +1689,7 @@ function openDetail(id) {
     <div class="dv-row"><span class="dv-k">Serving</span><span>${escapeHtml(b.serving) || '—'}</span></div>
     ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Price</span><span>${priceStr}</span></div>` : ''}
     <div class="dv-row"><span class="dv-k">Location</span><span>${escapeHtml(b.location) || '—'}</span></div>
+    <div class="dv-row"><span class="dv-k">Country</span><span>${b.country ? flagEmoji(b.country) + ' ' + escapeHtml(countryName(b.country)) : '—'}</span></div>
     ${!b.wishlist ? `<div class="dv-row"><span class="dv-k">Date</span><span>${b.date || '—'}</span></div>` : ''}
 
     <div class="gauge-wrap">

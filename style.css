@@ -410,3 +410,57 @@ html,body{
   background:var(--amber);color:#1a1206;border:none;border-radius:8px;
   padding:8px 14px;font-family:var(--font-display);font-weight:700;font-size:12px;flex:none;
 }
+
+/* ---------- welcome greeting + surprise me ---------- */
+.hud-greeting{
+  margin-top:8px;font-size:11px;color:var(--cyan);font-style:italic;
+  font-family:var(--font-mono);letter-spacing:.01em;
+}
+.surprise-row{padding:2px 16px 6px;}
+
+/* ---------- custom tag "add" chip ---------- */
+.chip.chip-add{
+  background:none;border:1px dashed var(--amber);color:var(--amber);
+}
+.chip-add-form{display:flex;gap:8px;align-items:center;margin-top:-6px;}
+.chip-add-form input{flex:1;}
+
+/* ---------- world map / cards ---------- */
+.world-map-wrap{padding:14px 0 10px;}
+.world-map-svg-holder{
+  padding:10px 16px;min-height:180px;display:flex;align-items:center;justify-content:center;
+}
+.world-map-svg-holder svg{width:100%;height:auto;max-height:340px;}
+.world-map-svg-holder path{
+  fill:rgba(255,255,255,0.06);stroke:rgba(255,179,0,0.15);stroke-width:0.5;
+  transition:fill .3s ease;
+}
+.world-map-svg-holder path.visited{fill:var(--amber);cursor:pointer;}
+.world-map-svg-holder path.visited:hover{fill:var(--amber-soft);}
+.world-map-list{padding:0 20px;display:flex;flex-wrap:wrap;gap:8px;}
+.world-map-list .chip{background:var(--panel);}
+.world-map-list .chip.visited{background:var(--amber);color:#1a1206;border-color:var(--amber);font-weight:600;}
+.world-cards-wrap{padding-top:10px;}
+.card-wallet-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:8px 20px 30px;}
+.country-card{
+  text-align:center;cursor:pointer;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:14px 8px;
+  opacity:0;transform:scale(.7);transition:opacity .35s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+}
+.country-card.in{opacity:1;transform:scale(1);}
+.country-card.locked{opacity:.35;filter:grayscale(1);}
+.country-card.locked.in{opacity:.35;}
+.country-card .flag{font-size:30px;line-height:1;}
+.country-card .cname{font-size:10px;margin-top:6px;color:var(--text);font-weight:600;font-family:var(--font-display);}
+.country-card .ccount{font-size:9px;color:var(--text-dim);margin-top:2px;}
+.popup-country-flag{font-size:44px;margin-bottom:6px;}
+
+/* ---------- year in beer ---------- */
+.year-hero{
+  text-align:center;padding:20px;background:var(--panel);border:1px solid var(--line);
+  border-radius:14px;margin:0 20px 14px;
+}
+.year-hero .yh-big{font-family:var(--font-display);font-size:36px;font-weight:700;color:var(--amber-soft);}
+.year-hero .yh-label{font-size:11px;color:var(--text-dim);letter-spacing:.05em;text-transform:uppercase;margin-top:4px;}
+.year-fact-row{display:flex;justify-content:space-between;font-size:13px;padding:10px 0;border-bottom:1px dashed var(--line);}
+.year-fact-row .yf-k{color:var(--text-dim);font-size:10px;letter-spacing:.05em;text-transform:uppercase;}
