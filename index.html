@@ -125,7 +125,15 @@
       <button type="button" class="seg-btn" data-seg="cards">Country Cards</button>
     </div>
     <div id="worldMapWrap" class="world-map-wrap">
-      <div id="worldMapSvgHolder" class="world-map-svg-holder"></div>
+      <div id="worldMapViewport" class="world-map-viewport">
+        <div id="worldMapSvgHolder" class="world-map-svg-holder"></div>
+        <div class="map-zoom-controls">
+          <button type="button" id="mapZoomIn" class="map-zoom-btn">＋</button>
+          <button type="button" id="mapZoomOut" class="map-zoom-btn">－</button>
+          <button type="button" id="mapZoomReset" class="map-zoom-btn map-zoom-reset">⤾</button>
+        </div>
+        <div class="map-hint">Pinch or use +／− to zoom · drag to pan</div>
+      </div>
       <p id="worldMapFallbackNote" class="opt-tag" style="text-transform:none;font-size:11px;padding:0 20px;" hidden>
         Couldn't load the live map graphic (needs an internet connection the first time) — showing your countries as a list instead.
       </p>

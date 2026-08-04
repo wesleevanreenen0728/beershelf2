@@ -127,7 +127,7 @@ const GREETINGS_NO_NAME = [
   'Cheers — ready to log something good?',
   'Set your name in Settings for a personal greeting next time.'
 ];
-const APP_VERSION = 'v2.3 — Aug 2026';
+const APP_VERSION = 'v2.4 — Aug 2026';
 
 function showUpdateToast() {
   if (document.getElementById('updateToast')) return; // already showing
@@ -560,6 +560,7 @@ function renderBadgesFull() {
    ============================================================ */
 let worldTab = 'map';
 let worldMapLoaded = false;
+let mapZoomState = { scale: 1, x: 0, y: 0 };
 
 function visitedCountryCodes() {
   const owned = beers.filter(b => !b.wishlist && b.country);
@@ -567,6 +568,78 @@ function visitedCountryCodes() {
 }
 function beersForCountry(code) {
   return beers.filter(b => !b.wishlist && b.country === code);
+}
+
+function applyMapTransform() {
+  const holder = document.getElementById('worldMapSvgHolder');
+  holder.style.transform = `translate(${mapZoomState.x}px, ${mapZoomState.y}px) scale(${mapZoomState.scale})`;
+}
+function resetMapZoom() {
+  mapZoomState = { scale: 1, x: 0, y: 0 };
+  applyMapTransform();
+}
+function clampScale(s) { return Math.min(6, Math.max(1, s)); }
+
+function bindMapZoomPan() {
+  const viewport = document.getElementById('worldMapViewport');
+  const holder = document.getElementById('worldMapSvgHolder');
+  let pointers = new Map();
+  let dragStart = null;
+  let pinchStartDist = null;
+  let pinchStartScale = 1;
+
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  viewport.addEventListener('pointerdown', (e) => {
+    viewport.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) {
+      dragStart = { x: e.clientX, y: e.clientY, ox: mapZoomState.x, oy: mapZoomState.y };
+    } else if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchStartDist = dist(pts[0], pts[1]);
+      pinchStartScale = mapZoomState.scale;
+      dragStart = null;
+    }
+  });
+  viewport.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size === 2 && pinchStartDist) {
+      const pts = [...pointers.values()];
+      const newDist = dist(pts[0], pts[1]);
+      mapZoomState.scale = clampScale(pinchStartScale * (newDist / pinchStartDist));
+      applyMapTransform();
+    } else if (pointers.size === 1 && dragStart) {
+      mapZoomState.x = dragStart.ox + (e.clientX - dragStart.x);
+      mapZoomState.y = dragStart.oy + (e.clientY - dragStart.y);
+      applyMapTransform();
+    }
+  });
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchStartDist = null;
+    if (pointers.size === 1) {
+      const remaining = [...pointers.values()][0];
+      dragStart = { x: remaining.x, y: remaining.y, ox: mapZoomState.x, oy: mapZoomState.y };
+    } else if (pointers.size === 0) {
+      dragStart = null;
+    }
+  }
+  viewport.addEventListener('pointerup', endPointer);
+  viewport.addEventListener('pointercancel', endPointer);
+  viewport.addEventListener('pointerleave', endPointer);
+
+  document.getElementById('mapZoomIn').addEventListener('click', () => {
+    mapZoomState.scale = clampScale(mapZoomState.scale + 0.5);
+    applyMapTransform();
+  });
+  document.getElementById('mapZoomOut').addEventListener('click', () => {
+    mapZoomState.scale = clampScale(mapZoomState.scale - 0.5);
+    applyMapTransform();
+  });
+  document.getElementById('mapZoomReset').addEventListener('click', resetMapZoom);
 }
 
 function bindWorldViews() {
@@ -582,6 +655,7 @@ function bindWorldViews() {
   });
   const popup = document.getElementById('countryPopup');
   popup.addEventListener('click', (e) => { if (e.target === popup) closeCountryPopup(); });
+  bindMapZoomPan();
 }
 function renderWorldActiveTab() {
   if (worldTab === 'map') renderWorldMap();
@@ -591,10 +665,13 @@ function renderWorldActiveTab() {
 async function renderWorldMap() {
   const visited = visitedCountryCodes();
   const holder = document.getElementById('worldMapSvgHolder');
+  const viewport = document.getElementById('worldMapViewport');
   const listEl = document.getElementById('worldMapList');
   const fallbackNote = document.getElementById('worldMapFallbackNote');
+  resetMapZoom();
 
   if (visited.length === 0 && !worldMapLoaded) {
+    viewport.hidden = false;
     holder.innerHTML = `<p style="text-align:center;color:var(--text-dim);font-size:12px;padding:30px;">Add a beer with a Country set to start filling in your map.</p>`;
     return;
   }
@@ -611,9 +688,10 @@ async function renderWorldMap() {
       if (!svg) throw new Error('no svg in response');
       svg.removeAttribute('width');
       svg.removeAttribute('height');
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
       worldMapLoaded = true;
     } catch (err) {
-      holder.innerHTML = '';
+      viewport.hidden = true;
       fallbackNote.hidden = false;
       listEl.hidden = false;
       renderWorldMapListFallback();
@@ -621,6 +699,7 @@ async function renderWorldMap() {
     }
   }
 
+  viewport.hidden = false;
   fallbackNote.hidden = true;
   listEl.hidden = true;
   paintWorldMap();

@@ -14,7 +14,7 @@
  * launch video) still use cache-first, since re-downloading those on every
  * visit would be wasteful. None of this ever touches IndexedDB.
  */
-const CACHE_NAME = 'brewos-shell-v3';
+const CACHE_NAME = 'brewos-shell-v4';
 
 const APP_SHELL = ['./', './index.html', './style.css', './app.js', './manifest.json'];
 const STATIC_ASSETS = ['./icon-192.png', './icon-512.png', './apple-touch-icon.png', './pour.mp4'];
