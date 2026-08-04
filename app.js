@@ -127,7 +127,7 @@ const GREETINGS_NO_NAME = [
   'Cheers — ready to log something good?',
   'Set your name in Settings for a personal greeting next time.'
 ];
-const APP_VERSION = 'v2.4 — Aug 2026';
+const APP_VERSION = 'v2.5 — Aug 2026';
 
 function showUpdateToast() {
   if (document.getElementById('updateToast')) return; // already showing
@@ -709,13 +709,23 @@ function paintWorldMap() {
   const holder = document.getElementById('worldMapSvgHolder');
   const svg = holder.querySelector('svg');
   if (!svg) return;
-  svg.querySelectorAll('path[id]').forEach(path => {
-    const code = path.id.toLowerCase();
+
+  // Countries can appear two ways in this map file:
+  //  - a single <path id="xx"> for single-landmass countries (e.g. Czechia)
+  //  - a <g id="xx"> wrapping several unlabeled <path> children for
+  //    countries with islands/exclaves (US, Japan, Italy, Denmark, etc.)
+  // Matching only "path[id]" misses every country of the second kind, which
+  // is why some countries weren't lighting up. Handle both here.
+  svg.querySelectorAll('[id]').forEach(el => {
+    const code = el.id.toLowerCase();
+    if (code.length !== 2) return; // skip non-country ids (defs, gradients, etc.)
     const isVisited = visited.has(code);
-    path.classList.toggle('visited', isVisited);
-    if (isVisited && !path.dataset.bound) {
-      path.dataset.bound = '1';
-      path.addEventListener('click', () => openCountryPopup(code));
+    const targetPaths = el.tagName.toLowerCase() === 'path' ? [el] : Array.from(el.querySelectorAll('path'));
+    targetPaths.forEach(path => path.classList.toggle('visited', isVisited));
+    if (isVisited && !el.dataset.bound) {
+      el.dataset.bound = '1';
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => openCountryPopup(code));
     }
   });
 }
