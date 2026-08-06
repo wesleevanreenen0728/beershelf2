@@ -58,6 +58,28 @@
     </div>
   </div>
 
+  <!-- ============ AGE VERIFICATION / WELCOME (one-time) ============ -->
+  <div id="ageGate" class="popup-overlay age-gate-overlay">
+    <div class="popup-card age-gate-card">
+      <div class="popup-hex" style="margin:0 auto 14px;">🍺</div>
+      <div class="popup-name">Welcome to BrewOS</div>
+      <p class="popup-desc" style="margin-top:10px;">
+        This app is for tracking beer and other alcoholic drinks. Before you get started, we need to confirm a couple of things — just once.
+      </p>
+      <label class="wishlist-toggle" style="margin-top:16px;text-align:left;">
+        <input type="checkbox" id="ageGateCheckbox">
+        <span>I confirm I am of legal drinking age in my country or region.</span>
+      </label>
+      <label style="display:block;margin-top:16px;text-align:left;">
+        <span class="opt-tag" style="display:block;margin-bottom:6px;">What should we call you?</span>
+        <input id="ageGateName" type="text" placeholder="Your name" style="width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px 12px;color:var(--text);font-size:14px;font-family:var(--font-mono);">
+      </label>
+      <div class="popup-actions">
+        <button id="ageGateContinue" class="btn-primary wide" disabled>Continue</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ SHELF (INVENTORY) VIEW ============ -->
   <section id="view-shelf" class="view active">
     <header class="hud-header">
@@ -107,19 +129,11 @@
   <section id="view-stats" class="view">
     <header class="page-header"><h2>System Stats</h2></header>
     <div id="statsContent" class="stats-content"></div>
-    <div class="badges-link-row">
-      <button id="viewWorldBtn" class="btn-secondary wide">🌍 World Map & Country Cards</button>
-      <button id="viewYearBtn" class="btn-secondary wide">✦ Year in Beer</button>
-      <button id="viewBadgesBtn" class="btn-secondary wide">▸ View All Badges</button>
-    </div>
   </section>
 
   <!-- ============ WORLD MAP & CARDS VIEW ============ -->
   <section id="view-world" class="view">
-    <header class="page-header with-back">
-      <button class="link-btn" data-nav="stats">← Back</button>
-      <h2>World Map</h2>
-    </header>
+    <header class="page-header"><h2>World Map</h2></header>
     <div class="segmented" id="worldSegment">
       <button type="button" class="seg-btn active" data-seg="map">Map</button>
       <button type="button" class="seg-btn" data-seg="cards">Country Cards</button>
@@ -150,21 +164,9 @@
     <div class="popup-card" id="countryPopupCard"></div>
   </div>
 
-  <!-- ============ YEAR IN BEER VIEW ============ -->
-  <section id="view-year" class="view">
-    <header class="page-header with-back">
-      <button class="link-btn" data-nav="stats">← Back</button>
-      <h2>Year in Beer</h2>
-    </header>
-    <div id="yearContent" class="stats-content"></div>
-  </section>
-
   <!-- ============ BADGES VIEW ============ -->
   <section id="view-badges" class="view">
-    <header class="page-header with-back">
-      <button id="badgesBack" class="link-btn" data-nav="stats">← Back</button>
-      <h2>Achievement Modules</h2>
-    </header>
+    <header class="page-header"><h2>Achievement Modules</h2></header>
     <div id="badgesSummary" class="badges-summary"></div>
     <div id="badgesFullGrid" class="hex-row-full"></div>
     <div class="custom-badge-row">
@@ -260,6 +262,12 @@
     </button>
     <button class="nav-btn" data-nav="stats">
       <span class="nav-icon">◎</span><span>Stats</span>
+    </button>
+    <button class="nav-btn" data-nav="world">
+      <span class="nav-icon">◍</span><span>World</span>
+    </button>
+    <button class="nav-btn" data-nav="badges">
+      <span class="nav-icon">⬡</span><span>Badges</span>
     </button>
     <button class="nav-btn" data-nav="settings">
       <span class="nav-icon">⚙</span><span>Settings</span>

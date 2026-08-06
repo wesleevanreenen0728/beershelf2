@@ -127,7 +127,7 @@ const GREETINGS_NO_NAME = [
   'Cheers — ready to log something good?',
   'Set your name in Settings for a personal greeting next time.'
 ];
-const APP_VERSION = 'v2.5 — Aug 2026';
+const APP_VERSION = 'v2.6 — Aug 2026';
 
 function showUpdateToast() {
   if (document.getElementById('updateToast')) return; // already showing
@@ -196,12 +196,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   bindAddFlow();
   bindDetailModal();
   bindSettings();
-  bindBadgesLink();
   bindBadgePopup();
   bindCustomBadgeForm();
   bindWorldViews();
-  bindYearInBeer();
   bindSurpriseMe();
+  bindAgeGate();
+  if (!settings.ageVerified) {
+    document.getElementById('ageGate').classList.add('active');
+  }
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js').then(reg => {
@@ -219,6 +221,34 @@ window.addEventListener('DOMContentLoaded', async () => {
     }).catch(() => {});
   }
 });
+
+/* ============================================================
+   AGE GATE / ONE-TIME WELCOME
+   ============================================================ */
+function bindAgeGate() {
+  const checkbox = document.getElementById('ageGateCheckbox');
+  const nameInput = document.getElementById('ageGateName');
+  const continueBtn = document.getElementById('ageGateContinue');
+
+  function updateState() {
+    continueBtn.disabled = !(checkbox.checked && nameInput.value.trim().length > 0);
+  }
+  checkbox.addEventListener('change', updateState);
+  nameInput.addEventListener('input', updateState);
+
+  continueBtn.addEventListener('click', async () => {
+    if (continueBtn.disabled) return;
+    const name = nameInput.value.trim();
+    settings.ageVerified = true;
+    settings.displayName = name;
+    const settingsNameInput = document.getElementById('fDisplayName');
+    if (settingsNameInput) settingsNameInput.value = name;
+    await idbPut('settings', { key: 'ageVerified', value: true });
+    await idbPut('settings', { key: 'displayName', value: name });
+    document.getElementById('ageGate').classList.remove('active');
+    renderGreeting();
+  });
+}
 
 /* ============================================================
    SPLASH / LAUNCH SEQUENCE
@@ -287,12 +317,6 @@ function goToView(name) {
   if (name === 'stats') renderStats();
   if (name === 'badges') renderBadgesFull();
   if (name === 'world') renderWorldActiveTab();
-  if (name === 'year') renderYearInBeer();
-}
-function bindBadgesLink() {
-  document.getElementById('viewBadgesBtn').addEventListener('click', () => goToView('badges'));
-  document.getElementById('viewWorldBtn').addEventListener('click', () => goToView('world'));
-  document.getElementById('viewYearBtn').addEventListener('click', () => goToView('year'));
 }
 
 /* ---------------- shelf ---------------- */
@@ -957,11 +981,6 @@ function renderStats() {
   }
   const maxMonthCount = Math.max(...monthCounts, 1);
 
-  const ctx = computeBadgeContext();
-  const allBadges = allBadgesForDisplay();
-  const unlockedCount = allBadges.filter(b => isBadgeUnlocked(b, ctx)).length;
-  const previewBadges = [...allBadges].sort((a, b) => (isBadgeUnlocked(b, ctx) ? 1 : 0) - (isBadgeUnlocked(a, ctx) ? 1 : 0)).slice(0, 4);
-
   el.innerHTML = `
     <div class="stat-grid">
       <div class="stat-card"><div class="stat-big">${total}</div><div class="stat-label">Total Units</div></div>
@@ -1038,61 +1057,12 @@ function renderStats() {
         </div>
       `).join('')}
     </div>
-    <div class="stat-card">
-      <div class="stat-label" style="margin-bottom:8px;">${unlockedCount} / ${allBadges.length} Badges Unlocked</div>
-      <div class="hex-row-full" id="statsBadgePreview" style="padding:0;"></div>
-    </div>
   `;
   requestAnimationFrame(() => {
     el.querySelectorAll('.bar-fill').forEach(bar => {
       requestAnimationFrame(() => { bar.style.width = bar.dataset.w + '%'; });
     });
   });
-  renderBadgeHexes(document.getElementById('statsBadgePreview'), previewBadges, ctx, 60);
-}
-
-/* ============================================================
-   YEAR IN BEER — shareable summary
-   ============================================================ */
-function bindYearInBeer() {
-  // Nav wiring for #view-year happens via goToView(); nothing else to bind here.
-}
-function renderYearInBeer() {
-  const el = document.getElementById('yearContent');
-  const year = new Date().getFullYear();
-  const owned = beers.filter(b => !b.wishlist && b.createdAt && new Date(b.createdAt).getFullYear() === year);
-  if (owned.length === 0) {
-    el.innerHTML = `<p style="text-align:center;color:var(--text-dim);padding:30px 0;font-size:12px;">No beers logged in ${year} yet — get pouring!</p>`;
-    return;
-  }
-  const styleCounts = {};
-  owned.forEach(b => { const s = (b.style || '').trim() || 'Unspecified'; styleCounts[s] = (styleCounts[s] || 0) + 1; });
-  const topStyle = Object.entries(styleCounts).sort((a, b) => b[1] - a[1])[0];
-
-  const breweryCounts = {};
-  owned.forEach(b => { const br = (b.brewery || '').trim(); if (br) breweryCounts[br] = (breweryCounts[br] || 0) + 1; });
-  const topBrewery = Object.entries(breweryCounts).sort((a, b) => b[1] - a[1])[0];
-
-  const strongest = [...owned].filter(b => !isNaN(Number(b.abv))).sort((a, b) => Number(b.abv) - Number(a.abv))[0];
-  const topRated = [...owned].filter(b => b.rating > 0).sort((a, b) => b.rating - a.rating)[0];
-  const avgRating = (owned.reduce((s, b) => s + (Number(b.rating) || 0), 0) / owned.length).toFixed(1);
-  const countries = new Set(owned.map(b => b.country).filter(Boolean)).size;
-
-  el.innerHTML = `
-    <div class="year-hero">
-      <div class="yh-big">${owned.length}</div>
-      <div class="yh-label">Beers logged in ${year}</div>
-    </div>
-    <div class="stat-card">
-      ${topStyle ? `<div class="year-fact-row"><span class="yf-k">Go-to Style</span><span>${escapeHtml(topStyle[0])} (${topStyle[1]}×)</span></div>` : ''}
-      ${topBrewery ? `<div class="year-fact-row"><span class="yf-k">Favorite Brewery</span><span>${escapeHtml(topBrewery[0])} (${topBrewery[1]}×)</span></div>` : ''}
-      ${topRated ? `<div class="year-fact-row"><span class="yf-k">Top Rated</span><span>${escapeHtml(topRated.name)} · ${starString(topRated.rating)}</span></div>` : ''}
-      ${strongest && strongest.abv ? `<div class="year-fact-row"><span class="yf-k">Strongest Pour</span><span>${escapeHtml(strongest.name)} · ${Number(strongest.abv).toFixed(1)}%</span></div>` : ''}
-      <div class="year-fact-row"><span class="yf-k">Average Rating</span><span>${avgRating} / 5</span></div>
-      ${countries ? `<div class="year-fact-row"><span class="yf-k">Countries Visited</span><span>${countries}</span></div>` : ''}
-    </div>
-    <p style="text-align:center;font-size:11px;color:var(--text-dim);padding:0 20px;">Tip: use "Create Shareable File" in Settings to send your friends the full collection this summary is built from.</p>
-  `;
 }
 
 /* ============================================================
